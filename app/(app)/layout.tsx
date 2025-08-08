@@ -10,6 +10,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     notFound();
   }
 
+  console.log("slug", slug);
   let tenant;
   try {
     tenant = await getTenantBySlug(slug);
