@@ -1,16 +1,11 @@
-import { createClient } from '../server/supabase/server'
-import { cookies } from 'next/headers'
-import { Todo } from '../lib/types/index'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { createServerSupabase } from "@/server/supabase/server";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import type { Todo } from "@/lib/types";
 
-
-export default async function Page() {
-  const cookieStore = await cookies()
-  const supabase = createClient(cookieStore)
-
-  const { data: todos } = await supabase.from('todos').select() as { data: Todo[] }
-
+export default async function AppHomePage() {
+  const supabase = await createServerSupabase();
+  const { data: todos } = await supabase.from("todos").select() as { data: Todo[] };
 
   return (
     <div className='flex flex-col items-center justify-center h-screen'>
@@ -31,5 +26,7 @@ export default async function Page() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
+
+
