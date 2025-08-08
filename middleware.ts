@@ -55,7 +55,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   // Skip static files and images
-  matcher: [
+matcher: [
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico)).*)",
   ],
 };

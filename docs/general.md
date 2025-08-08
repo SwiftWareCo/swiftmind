@@ -1,0 +1,3 @@
+- Server code is grouped by domain under `server/<domain>/...`:
+  - Data fetching in `<resource>.data.ts` files, e.g. `server/data/tenants.data.ts`
+  - Mutations/server actions in `<feature>.actions.ts` files, e.g. `server/auth/auth.actions.ts`

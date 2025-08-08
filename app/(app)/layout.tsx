@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { getTenantSlug } from "@/lib/utils/tenant";
-import { getTenantBySlug } from "@/server/data/tenants.data";
+import { getTenantBySlug } from "@/server/tenants/tenants.data";
 import { TenantProvider } from "@/components/tenant/TenantProvider";
 import { notFound } from "next/navigation";
 
@@ -14,6 +14,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   try {
     tenant = await getTenantBySlug(slug);
   } catch (err: unknown) {
+    console.error(err);
     notFound();
   }
 

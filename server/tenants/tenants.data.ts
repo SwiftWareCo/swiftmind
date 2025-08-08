@@ -1,14 +1,12 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { createClient } from "@/server/supabase/server";
 import type { Tables } from "@/lib/types/database.types";
 
 export type TenantRow = Pick<Tables<"tenants">, "id" | "slug" | "name">;
 
 export async function getTenantBySlug(slug: string): Promise<TenantRow> {
-  const cookieStore = await cookies();
-  const supabase = createClient(cookieStore);
+  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("tenants")

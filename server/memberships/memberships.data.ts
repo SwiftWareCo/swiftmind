@@ -1,6 +1,5 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { createClient } from "@/server/supabase/server";
 import type { Tables } from "@/lib/types";
 
@@ -13,8 +12,7 @@ type RawMembership = Tables<"memberships"> & {
 };
 
 export async function getCurrentUserMemberships(): Promise<MembershipRow[]> {
-  const cookieStore = await cookies();
-  const supabase = createClient(cookieStore);
+  const supabase = await createClient();
 
   const { data: { user }, error: userError } = await supabase.auth.getUser();
   if (userError) throw new Error(userError.message);
