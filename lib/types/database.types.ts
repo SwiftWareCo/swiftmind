@@ -93,6 +93,213 @@ export type Database = {
           },
         ]
       }
+      kb_chunks: {
+        Row: {
+          allowed_roles: string[] | null
+          chunk_idx: number
+          content: string
+          created_at: string
+          doc_id: string
+          embedding: string
+          id: string
+          metadata: Json | null
+          tenant_id: string
+          title: string | null
+          tsv: unknown | null
+        }
+        Insert: {
+          allowed_roles?: string[] | null
+          chunk_idx: number
+          content: string
+          created_at?: string
+          doc_id: string
+          embedding: string
+          id?: string
+          metadata?: Json | null
+          tenant_id: string
+          title?: string | null
+          tsv?: unknown | null
+        }
+        Update: {
+          allowed_roles?: string[] | null
+          chunk_idx?: number
+          content?: string
+          created_at?: string
+          doc_id?: string
+          embedding?: string
+          id?: string
+          metadata?: Json | null
+          tenant_id?: string
+          title?: string | null
+          tsv?: unknown | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_chunks_doc_id_fkey"
+            columns: ["doc_id"]
+            isOneToOne: false
+            referencedRelation: "kb_docs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_chunks_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_docs: {
+        Row: {
+          content_hash: string | null
+          created_at: string
+          error: string | null
+          id: string
+          source_id: string | null
+          status: string
+          tenant_id: string
+          title: string
+          uri: string | null
+          version: number
+        }
+        Insert: {
+          content_hash?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          source_id?: string | null
+          status?: string
+          tenant_id: string
+          title: string
+          uri?: string | null
+          version?: number
+        }
+        Update: {
+          content_hash?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          source_id?: string | null
+          status?: string
+          tenant_id?: string
+          title?: string
+          uri?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_docs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "kb_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_docs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_ingest_jobs: {
+        Row: {
+          created_at: string
+          doc_id: string | null
+          error: string | null
+          id: string
+          source_id: string | null
+          status: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          doc_id?: string | null
+          error?: string | null
+          id?: string
+          source_id?: string | null
+          status?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          doc_id?: string | null
+          error?: string | null
+          id?: string
+          source_id?: string | null
+          status?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_ingest_jobs_doc_id_fkey"
+            columns: ["doc_id"]
+            isOneToOne: false
+            referencedRelation: "kb_docs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_ingest_jobs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "kb_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_ingest_jobs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_sources: {
+        Row: {
+          config: Json | null
+          created_at: string
+          created_by: string
+          id: string
+          tenant_id: string
+          title: string
+          type: string
+          uri: string | null
+        }
+        Insert: {
+          config?: Json | null
+          created_at?: string
+          created_by: string
+          id?: string
+          tenant_id: string
+          title: string
+          type: string
+          uri?: string | null
+        }
+        Update: {
+          config?: Json | null
+          created_at?: string
+          created_by?: string
+          id?: string
+          tenant_id?: string
+          title?: string
+          type?: string
+          uri?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_sources_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       memberships: {
         Row: {
           created_at: string
@@ -281,7 +488,63 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_kb_chunks_visible: {
+        Row: {
+          allowed_roles: string[] | null
+          chunk_idx: number | null
+          content: string | null
+          created_at: string | null
+          doc_id: string | null
+          embedding: string | null
+          id: string | null
+          metadata: Json | null
+          tenant_id: string | null
+          title: string | null
+          tsv: unknown | null
+        }
+        Insert: {
+          allowed_roles?: string[] | null
+          chunk_idx?: number | null
+          content?: string | null
+          created_at?: string | null
+          doc_id?: string | null
+          embedding?: string | null
+          id?: string | null
+          metadata?: Json | null
+          tenant_id?: string | null
+          title?: string | null
+          tsv?: unknown | null
+        }
+        Update: {
+          allowed_roles?: string[] | null
+          chunk_idx?: number | null
+          content?: string | null
+          created_at?: string | null
+          doc_id?: string | null
+          embedding?: string | null
+          id?: string | null
+          metadata?: Json | null
+          tenant_id?: string | null
+          title?: string | null
+          tsv?: unknown | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_chunks_doc_id_fkey"
+            columns: ["doc_id"]
+            isOneToOne: false
+            referencedRelation: "kb_docs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_chunks_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       binary_quantize: {

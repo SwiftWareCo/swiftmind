@@ -4,6 +4,8 @@ import { getTenantSlug } from "@/lib/utils/tenant";
 import { getTenantBySlug } from "@/server/tenants/tenants.data";
 import { TenantProvider } from "@/components/tenant/TenantProvider";
 import { createClient } from "@/server/supabase/server";
+import { QueryProvider } from "@/components/providers/QueryProvider";
+import {Toaster} from "@/components/ui/sonner"
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
@@ -44,7 +46,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <TenantProvider value={{ tenantId: tenant.id, slug: tenant.slug }}>
-      {children}
+      <QueryProvider>{children}</QueryProvider>
+      <Toaster richColors />
     </TenantProvider>
   );
 }
