@@ -32,3 +32,9 @@ export async function embedChunks(texts: string[]): Promise<EmbeddingVector[]> {
 }
 
 
+export async function embedQuery(text: string): Promise<EmbeddingVector> {
+  const [embedding] = await embedChunks([text]);
+  return embedding;
+}
+
+
