@@ -1,21 +1,25 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/server/supabase/client";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { createKbDocsQueryOptions } from "@/lib/queryOptions/kbQueryOptions";
+import { createKbDocsPageQueryOptions } from "@/lib/queryOptions/kbQueryOptions";
 import { DeleteDocButton } from "@/components/knowledge/DeleteDocButton";
+import { PaginationControls } from "@/components/ui/pagination";
 
 type Props = { tenantId: string };
 
 export function KnowledgeTable({ tenantId }: Props) {
   const supabase = useMemo(() => createClient(), []);
 
-  const { data } = useQuery(createKbDocsQueryOptions(tenantId, supabase));
-
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const { data, isFetching } = useQuery(createKbDocsPageQueryOptions(tenantId, supabase, page, pageSize));
 
   const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="mt-6">
@@ -51,6 +55,13 @@ export function KnowledgeTable({ tenantId }: Props) {
           </TableBody>
         </Table>
       </div>
+      <PaginationControls
+        className="mt-3"
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        isLoading={isFetching}
+      />
     </div>
   );
 }
