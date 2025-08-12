@@ -1,4 +1,3 @@
-import { createClient } from "@/server/supabase/server";
 import { getTenantSlug } from "@/lib/utils/tenant";
 import { getTenantBySlug } from "@/server/tenants/tenants.data";
 import { requirePermission } from "@/lib/utils/requirePermission";

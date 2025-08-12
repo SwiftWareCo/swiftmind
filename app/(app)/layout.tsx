@@ -7,6 +7,7 @@ import { createClient } from "@/server/supabase/server";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import {Toaster} from "@/components/ui/sonner"
 import { TenantShell } from "@/components/tenant/TenantShell";
+import { headers } from "next/headers";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
@@ -19,7 +20,33 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   const slug = await getTenantSlug();
-  if (!slug) notFound();
+  // When hitting apex host (no slug), redirect users with memberships to a tenant or show a friendly message
+  if (!slug) {
+    // Resolve first membership and direct to dashboard on that tenant, otherwise show notFound
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: first } = await supabase
+        .from("memberships")
+        .select("tenants:tenant_id(slug)")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle<{ tenants: { slug: string } | { slug: string }[] | null }>();
+      let firstSlug: string | null = null;
+      const t = first?.tenants;
+      if (t) firstSlug = Array.isArray(t) ? t[0]?.slug ?? null : t.slug;
+      const baseDomain = process.env.NEXT_PUBLIC_APP_BASE_DOMAIN;
+      if (firstSlug && baseDomain) {
+        const host = (await headers()).get("host") || "";
+        const port = host.includes(":") ? host.split(":")[1] : "";
+        const portPart = port ? `:${port}` : "";
+        const proto = ((await headers()).get("x-forwarded-proto") || "http").split(",")[0];
+        redirect(`${proto}://${firstSlug}.${baseDomain}${portPart}/dashboard`);
+      }
+      redirect("/dashboard");
+    }
+    notFound();
+  }
 
   let tenant;
   try {

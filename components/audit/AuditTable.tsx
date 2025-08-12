@@ -10,7 +10,7 @@ type Row = { action: string; resource: string; created_at: string };
 export default function AuditTable({ tenantId }: { tenantId: string }) {
   const supabase = useMemo(() => createClient(), []);
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 10;
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
   const { data, isFetching } = useQuery({

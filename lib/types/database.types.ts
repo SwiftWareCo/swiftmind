@@ -93,6 +93,56 @@ export type Database = {
           },
         ]
       }
+      invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          created_by: string | null
+          email: string
+          expires_at: string
+          id: string
+          revoked_at: string | null
+          role_key: string
+          tenant_id: string
+          token: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          email: string
+          expires_at?: string
+          id?: string
+          revoked_at?: string | null
+          role_key: string
+          tenant_id: string
+          token: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          email?: string
+          expires_at?: string
+          id?: string
+          revoked_at?: string | null
+          role_key?: string
+          tenant_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invites_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kb_chunks: {
         Row: {
           allowed_roles: string[] | null
@@ -389,6 +439,21 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_admins: {
+        Row: {
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       role_permissions: {
         Row: {
           created_at: string
@@ -473,16 +538,28 @@ export type Database = {
       }
       users: {
         Row: {
+          avatar_url: string | null
           created_at: string
+          display_name: string | null
           id: string
+          onboarded_at: string | null
+          updated_at: string
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string
+          display_name?: string | null
           id: string
+          onboarded_at?: string | null
+          updated_at?: string
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string
+          display_name?: string | null
           id?: string
+          onboarded_at?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -498,35 +575,10 @@ export type Database = {
           embedding: string | null
           id: string | null
           metadata: Json | null
+          source_uri: string | null
           tenant_id: string | null
           title: string | null
           tsv: unknown | null
-        }
-        Insert: {
-          allowed_roles?: string[] | null
-          chunk_idx?: number | null
-          content?: string | null
-          created_at?: string | null
-          doc_id?: string | null
-          embedding?: string | null
-          id?: string | null
-          metadata?: Json | null
-          tenant_id?: string | null
-          title?: string | null
-          tsv?: unknown | null
-        }
-        Update: {
-          allowed_roles?: string[] | null
-          chunk_idx?: number | null
-          content?: string | null
-          created_at?: string | null
-          doc_id?: string | null
-          embedding?: string | null
-          id?: string | null
-          metadata?: Json | null
-          tenant_id?: string | null
-          title?: string | null
-          tsv?: unknown | null
         }
         Relationships: [
           {
@@ -547,9 +599,48 @@ export type Database = {
       }
     }
     Functions: {
+      accept_tenant_invite: {
+        Args: { p_token: string } | { p_token: string; p_display_name?: string }
+        Returns: Json
+      }
       binary_quantize: {
         Args: { "": string } | { "": unknown }
         Returns: unknown
+      }
+      citext: {
+        Args: { "": boolean } | { "": string } | { "": unknown }
+        Returns: string
+      }
+      citext_hash: {
+        Args: { "": string }
+        Returns: number
+      }
+      citextin: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      citextout: {
+        Args: { "": string }
+        Returns: unknown
+      }
+      citextrecv: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      citextsend: {
+        Args: { "": string }
+        Returns: string
+      }
+      ensure_user_profile: {
+        Args: { p_display_name?: string; p_avatar_url?: string }
+        Returns: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          onboarded_at: string | null
+          updated_at: string
+        }
       }
       halfvec_avg: {
         Args: { "": number[] }
@@ -595,6 +686,28 @@ export type Database = {
         Args: { "": unknown }
         Returns: unknown
       }
+      kb_keyword_search: {
+        Args: { t: string; q: string; limit_k?: number }
+        Returns: {
+          doc_id: string
+          chunk_idx: number
+          title: string
+          content: string
+          score: number
+          source_uri: string
+        }[]
+      }
+      kb_vector_search: {
+        Args: { t: string; q: string; limit_k?: number }
+        Returns: {
+          doc_id: string
+          chunk_idx: number
+          title: string
+          content: string
+          score: number
+          source_uri: string
+        }[]
+      }
       l2_norm: {
         Args: { "": unknown } | { "": unknown }
         Returns: number
@@ -602,6 +715,16 @@ export type Database = {
       l2_normalize: {
         Args: { "": string } | { "": unknown } | { "": unknown }
         Returns: unknown
+      }
+      list_tenant_members: {
+        Args: { p_tenant: string }
+        Returns: {
+          user_id: string
+          email: string
+          display_name: string
+          role_key: string
+          joined_at: string
+        }[]
       }
       sparsevec_out: {
         Args: { "": unknown }

@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
-import { SidebarNav } from "./SidebarNav";
-import { Header } from "./Header";
+import { SidebarNav } from "@/components/tenant/SidebarNav";
+import { Header } from "@/components/tenant/Header";
 
 export function TenantShell({ children }: { children: ReactNode }) {
   return (

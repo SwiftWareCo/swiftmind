@@ -39,15 +39,27 @@ export async function signInWithPassword(prevState: ActionResult | undefined, fo
 export async function signUpWithPassword(prevState: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "").trim();
+  const confirm = String(formData.get("confirm_password") ?? "").trim();
 
   if (!email || !password) {
     return { ok: false, error: "Email and password are required" };
+  }
+  if (password !== confirm) {
+    return { ok: false, error: "Passwords do not match" };
+  }
+  if (password.length < 8) {
+    return { ok: false, error: "Password must be at least 8 characters" };
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  if (!emailRegex.test(email)) {
+    return { ok: false, error: "Please enter a valid email address" };
   }
 
   const supabase = await createClient();
 
   const siteUrl = await getSiteUrl();
-  const emailRedirectTo = `${siteUrl}/auth/confirm?next=/`;
+  // After confirmation, send new users to /no-access since they have 0 memberships
+  const emailRedirectTo = `${siteUrl}/auth/confirm?next=/no-access`;
 
   const { error } = await supabase.auth.signUp({
     email,
