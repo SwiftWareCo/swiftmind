@@ -15,7 +15,13 @@ type Item = { id: string; slug: string; name: string };
 export function TenantSwitcher({ memberships }: { memberships: Item[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const items = useMemo(() => memberships.sort((a, b) => a.name.localeCompare(b.name)), [memberships]);
+  const items = useMemo(() => {
+    const map = new Map<string, { id: string; slug: string; name: string }>();
+    for (const m of memberships) {
+      if (!map.has(m.id)) map.set(m.id, m);
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [memberships]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

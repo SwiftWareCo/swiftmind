@@ -32,6 +32,15 @@ export async function createInviteAction(
 
   if (!email || !roleKey) return { ok: false, error: "Missing input" };
 
+  // Safety: only allow roles that exist for the tenant; otherwise default to 'member'
+  const { data: roleRow } = await supabase
+    .from("roles")
+    .select("key")
+    .eq("tenant_id", tenantId)
+    .eq("key", roleKey)
+    .maybeSingle<{ key: string }>();
+  const safeRoleKey = roleRow?.key || "member";
+
   const token = crypto.randomBytes(24).toString("hex");
   const now = new Date();
   const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -42,7 +51,7 @@ export async function createInviteAction(
   const { error } = await supabase.from("invites").insert({
     tenant_id: tenantId,
     email,
-    role_key: roleKey,
+    role_key: safeRoleKey,
     token,
     created_by: user.id,
     expires_at: expires,
@@ -50,6 +59,7 @@ export async function createInviteAction(
   if (error) return { ok: false, error: error.message };
 
   const base = await getApexBaseUrl();
+  // Security: do not include role in link; acceptance RPC will use the stored role on the invite
   const link = `${base}/invite/accept?token=${encodeURIComponent(token)}`;
   return { ok: true, link };
 }

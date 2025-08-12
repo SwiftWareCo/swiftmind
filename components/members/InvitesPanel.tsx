@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/server/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { createInviteAction, revokeInviteAction, inviteLinkForTokenAction } from "@/server/memberships/invites.actions";
 import { formatDateTimeLocal } from "@/lib/utils/dates";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type InviteItem = {
   id: string;
@@ -27,7 +28,7 @@ export function InvitesPanel({ tenantId }: { tenantId: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("member");
+  const [role, setRole] = useState("");
 
   const { data: invites } = useQuery({
     queryKey: ["invites", tenantId],
@@ -43,11 +44,37 @@ export function InvitesPanel({ tenantId }: { tenantId: string }) {
   });
 
   const { data: roles } = useQuery({
-    queryKey: ["roles"],
+    queryKey: ["roles", tenantId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("roles").select("key, name");
-      if (error) return [{ key: "member", name: "Member" }, { key: "admin", name: "Admin" }];
+      const { data, error } = await supabase
+        .from("roles")
+        .select("key, name")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
       return data || [];
+    },
+  });
+
+  // Default selected role to first available tenant role
+  const initialRole = (roles as { key: string; name: string }[] | undefined)?.[0]?.key || "";
+  const selectedRole = role || initialRole;
+
+  const createInvite = useMutation({
+    mutationFn: async ({ email, role }: { email: string; role: string }) => {
+      return createInviteAction(tenantId, email, role);
+    },
+    onSuccess: async (res) => {
+      if (res.ok && res.link) {
+        await navigator.clipboard.writeText(res.link);
+        toast.success("Invite created. Link copied to clipboard.");
+        setOpen(false);
+        setEmail("");
+        setRole("");
+        qc.invalidateQueries({ queryKey: ["invites", tenantId] });
+      } else {
+        toast.error(res.error || "Failed to create invite");
+      }
     },
   });
 
@@ -138,26 +165,23 @@ export function InvitesPanel({ tenantId }: { tenantId: string }) {
             </div>
             <div className="grid gap-2">
               <label className="text-sm">Role</label>
-              <select className="h-9 rounded-md border bg-background px-3 text-sm" value={role} onChange={(e) => setRole(e.target.value)}>
-                {(roles as { key: string; name: string }[] | undefined)?.map((r) => (
-                  <option key={r.key} value={r.key}>{r.name}</option>
-                ))}
-              </select>
+              <Select value={selectedRole} onValueChange={(val) => setRole(val)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(roles as { key: string; name: string }[] | undefined)?.map((r) => (
+                    <SelectItem key={r.key} value={r.key}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex justify-end">
               <Button
-                onClick={async () => {
-                  const res = await createInviteAction(tenantId, email.trim(), role);
-                  if (res.ok && res.link) {
-                    await navigator.clipboard.writeText(res.link);
-                    toast.success("Invite created. Link copied to clipboard.");
-                    setOpen(false);
-                    setEmail("");
-                    setRole(roles?.[0]?.key || "member");
-                    qc.invalidateQueries({ queryKey: ["invites", tenantId] });
-                  } else {
-                    toast.error(res.error || "Failed to create invite");
-                  }
+                disabled={createInvite.isPending}
+                onClick={() => {
+                  const chosenRole = selectedRole || "member";
+                  createInvite.mutate({ email: email.trim(), role: chosenRole });
                 }}
               >
                 Create & Copy Link

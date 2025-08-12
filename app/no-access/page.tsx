@@ -76,7 +76,6 @@ export default async function NoAccessPage() {
             <input name="invite_code" placeholder="Enter invite code" className="h-9 w-56 rounded-md border bg-background px-3 text-sm" />
             <Button type="submit" disabled>Submit</Button>
           </form>
-          <div className="mt-2 text-xs text-muted-foreground">Invites coming soon</div>
         </div>
       )}
     </div>

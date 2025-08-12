@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { completeInviteAction, completeInviteNewUserAction } from "@/server/auth/invite.actions";
+import { buildTenantUrl } from "@/lib/utils/tenant";
 import { PasswordFieldWithStrength } from "@/components/auth/PasswordFieldWithStrength";
 
 export default async function InviteAcceptPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
@@ -38,8 +39,8 @@ export default async function InviteAcceptPage({ searchParams }: { searchParams:
         if (res.ok) {
           const slug = res.tenant_slug;
           if (slug) {
-            const base = process.env.NEXT_PUBLIC_APP_BASE_DOMAIN;
-            if (base) redirect(`https://${slug}.${base}/dashboard`);
+            const url = await buildTenantUrl(slug, "/dashboard");
+            redirect(url);
           }
           redirect("/dashboard");
         }

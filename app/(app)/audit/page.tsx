@@ -10,7 +10,7 @@ export default async function AuditPage() {
   await requirePermission(tenant.id, "members.manage");
 
   return (
-    <div className="max-w-4xl">
+    <div className="">
       <h1 className="text-2xl font-semibold mb-4">Audit Logs</h1>
       {/* Client table with pagination via TanStack Query */}
       <AuditTable tenantId={tenant.id} />
