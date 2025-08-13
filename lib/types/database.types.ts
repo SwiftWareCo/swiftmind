@@ -541,24 +541,24 @@ export type Database = {
           avatar_url: string | null
           created_at: string
           display_name: string | null
+          email: string | null
           id: string
-          onboarded_at: string | null
           updated_at: string
         }
         Insert: {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
+          email?: string | null
           id: string
-          onboarded_at?: string | null
           updated_at?: string
         }
         Update: {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
+          email?: string | null
           id?: string
-          onboarded_at?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -600,7 +600,7 @@ export type Database = {
     }
     Functions: {
       accept_tenant_invite: {
-        Args: { p_token: string } | { p_token: string; p_display_name?: string }
+        Args: { p_token: string; p_display_name: string }
         Returns: Json
       }
       binary_quantize: {
@@ -632,15 +632,8 @@ export type Database = {
         Returns: string
       }
       ensure_user_profile: {
-        Args: { p_display_name?: string; p_avatar_url?: string }
-        Returns: {
-          avatar_url: string | null
-          created_at: string
-          display_name: string | null
-          id: string
-          onboarded_at: string | null
-          updated_at: string
-        }
+        Args: { display_name: string; avatar_url: string }
+        Returns: undefined
       }
       halfvec_avg: {
         Args: { "": number[] }

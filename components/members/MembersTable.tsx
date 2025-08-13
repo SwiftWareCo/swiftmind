@@ -24,7 +24,7 @@ export default function MembersTable({ tenantId, onUpdateMemberRole }: { tenantI
       type RpcRow = { user_id: string; role_key: string; created_at: string; email: string; display_name: string | null };
       const { data, error } = await supabase
         .rpc("list_tenant_members", { p_tenant: tenantId })
-        .returns<RpcRow[]>();
+        .overrideTypes<RpcRow[]>();
       if (error) throw new Error(error.message);
       const rows = (data || []) as RpcRow[];
       return { rows };

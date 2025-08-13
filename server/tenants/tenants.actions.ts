@@ -1,9 +1,18 @@
 "use server";
 
 import { createClient } from "@/server/supabase/server";
+import { createAdminClient } from "@/server/supabase/admin";
+import { requirePlatformAdmin } from "@/server/platform/platform-admin.data";
+import type { Tables, TablesInsert } from "@/lib/types/database.types";
 
 export type AcceptInviteResult = { ok: boolean; error?: string; tenant_slug?: string };
 
+export type CreateTenantResult = {
+  ok: boolean;
+  error?: string;
+  tenant?: Pick<Tables<"tenants">, "id" | "name" | "slug">;
+  createdAdmin?: { userId: string; email: string; temporaryPassword?: string };
+};
 
 export async function acceptInviteAction(token: string, displayName?: string): Promise<AcceptInviteResult> {
   const supabase = await createClient();
@@ -12,7 +21,6 @@ export async function acceptInviteAction(token: string, displayName?: string): P
   if (!user) return { ok: false, error: "401" };
 
   const dn = (displayName || "").trim();
-  // Call RPC with parameter names matching the SQL signature (e.g., p_token, p_display_name)
   const { data, error } = await supabase
     .rpc("accept_tenant_invite", { p_token: token, p_display_name: dn || null });
 
@@ -22,4 +30,92 @@ export async function acceptInviteAction(token: string, displayName?: string): P
   return { ok: true, tenant_slug: slug };
 }
 
+export async function createTenantAction(name: string, slug: string, initialAdminEmail?: string): Promise<CreateTenantResult> {
+  await requirePlatformAdmin();
+
+  const n = (name || "").trim();
+  const s = (slug || "").trim().toLowerCase();
+  if (!n || !s) return { ok: false, error: "Missing input" };
+
+  const admin = await createAdminClient();
+
+  // 1) Create tenant
+  const { data: tenantRow, error: tenantErr } = await admin
+    .from("tenants")
+    .insert({ name: n, slug: s } as unknown as TablesInsert<"tenants">)
+    .select("id, name, slug")
+    .maybeSingle<Pick<Tables<"tenants">, "id" | "name" | "slug">>();
+  if (tenantErr) return { ok: false, error: tenantErr.message };
+  if (!tenantRow) return { ok: false, error: "Failed to create tenant" };
+
+  const tenantId = tenantRow.id;
+
+  // 2) Seed roles
+  const defaultRoles: Array<{ key: string; name: string; description?: string | null }> = [
+    { key: "admin", name: "Admin", description: "Full access" },
+    { key: "operations", name: "Operations", description: "Operational tasks" },
+    { key: "member", name: "Member", description: "Default member" },
+  ];
+  for (const r of defaultRoles) {
+    await admin.from("roles").upsert({
+      tenant_id: tenantId,
+      key: r.key,
+      name: r.name,
+      description: r.description ?? null,
+    } as unknown as TablesInsert<"roles">, { onConflict: "tenant_id,key" } as unknown as { onConflict: string });
+  }
+
+  // 3) Seed permissions for roles
+  // Grant all permissions to admin
+  const { data: perms } = await admin.from("permissions").select("key");
+  const allPermKeys = (perms || []).map((p: { key: string }) => p.key);
+  for (const p of allPermKeys) {
+    await admin.from("role_permissions").upsert({
+      tenant_id: tenantId,
+      role_key: "admin",
+      permission_key: p,
+    } as unknown as TablesInsert<"role_permissions">, { onConflict: "tenant_id,role_key,permission_key" } as unknown as { onConflict: string });
+  }
+  // Grant email.send to operations if it exists
+  if (allPermKeys.includes("email.send")) {
+    await admin.from("role_permissions").upsert({
+      tenant_id: tenantId,
+      role_key: "operations",
+      permission_key: "email.send",
+    } as unknown as TablesInsert<"role_permissions">, { onConflict: "tenant_id,role_key,permission_key" } as unknown as { onConflict: string });
+  }
+
+  // 4) Optional initial admin membership (operator-only): if the auth user exists already
+  if (initialAdminEmail) {
+    const email = initialAdminEmail.trim().toLowerCase();
+    if (email) {
+      const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1, email } as unknown as { page?: number; perPage?: number; email?: string });
+      let userId: string | null = (list?.users || []).find((u) => u.email?.toLowerCase() === email)?.id || null;
+
+      // If no auth user exists, create one with a temporary password
+      let temporaryPassword: string | undefined;
+      if (!userId) {
+        temporaryPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-4);
+        const { data: created } = await admin.auth.admin.createUser({
+          email,
+          password: temporaryPassword,
+          email_confirm: true,
+        } as unknown as { email: string; password: string; email_confirm?: boolean });
+        userId = created?.user?.id || null;
+      }
+
+      if (userId) {
+        await admin.from("memberships").upsert({
+          tenant_id: tenantId,
+          user_id: userId,
+          role_key: "admin",
+        } as unknown as TablesInsert<"memberships">, { onConflict: "tenant_id,user_id" } as unknown as { onConflict: string });
+
+        return { ok: true, tenant: tenantRow, createdAdmin: { userId, email, temporaryPassword } };
+      }
+    }
+  }
+
+  return { ok: true, tenant: tenantRow };
+}
 
