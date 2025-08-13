@@ -6,7 +6,7 @@ import type { TablesInsert } from "@/lib/types/database.types";
 import { retrieve } from "@/server/kb/retrieve";
 
 type AskInput = { tenantId: string; question: string };
-type AskResult = { ok: true; text: string; citations: { doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null }[] } | { ok: false; error: string };
+type AskResult = { ok: true; text: string; citations: { doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null; snippet?: string | null; score?: number | null }[] } | { ok: false; error: string };
 
 async function synthesizeAnswer(question: string, contextChunks: { title: string | null; content: string; source_uri?: string | null; doc_id: string; chunk_idx: number }[]): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
@@ -48,7 +48,17 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
 
   try {
     const result = await retrieve({ tenantId, query: q, k: 8, useRerank: false });
-    const citations = result.chunks.map((c) => ({ doc_id: c.doc_id, chunk_idx: c.chunk_idx, title: c.title, source_uri: c.source_uri }));
+    if ((result.chunks || []).length === 0) {
+      return { ok: true, text: "I couldn't find relevant documents to answer that. Try uploading or refining your question.", citations: [] };
+    }
+    const citations = result.chunks.map((c) => ({
+      doc_id: c.doc_id,
+      chunk_idx: c.chunk_idx,
+      title: c.title,
+      source_uri: c.source_uri,
+      snippet: (c.content || "").slice(0, 300),
+      score: (c as unknown as { score?: number }).score ?? null,
+    }));
     const answer = await synthesizeAnswer(q, result.chunks);
 
     try {

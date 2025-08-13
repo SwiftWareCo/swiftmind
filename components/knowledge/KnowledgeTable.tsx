@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { createKbDocsPageQueryOptions } from "@/lib/queryOptions/kbQueryOptions";
 import { DeleteDocButton } from "@/components/knowledge/DeleteDocButton";
 import { PaginationControls } from "@/components/ui/pagination";
+import { StatusBadge } from "@/components/knowledge/StatusBadge";
 
 type Props = { tenantId: string };
 
@@ -40,7 +41,7 @@ export function KnowledgeTable({ tenantId }: Props) {
             {rows.map((d) => (
               <TableRow key={d.id}>
                 <TableCell className="font-medium">{d.title}</TableCell>
-                <TableCell>{d.status}</TableCell>
+                <TableCell><StatusBadge status={d.status} /></TableCell>
                 <TableCell>{d.chunkCount}</TableCell>
                 <TableCell>{d.latestJob ? d.latestJob.status : "–"}</TableCell>
                 <TableCell className="text-red-600">{d.error ?? ""}</TableCell>

@@ -4,6 +4,10 @@ import { createClient } from "@/server/supabase/server";
 import { DisplayNameModal } from "@/components/auth/DisplayNameModal";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/server/auth/auth.actions";
+import { getTenantSlug } from "@/lib/utils/tenant";
+import { getTenantBySlug } from "@/server/tenants/tenants.data";
+import { hasPermission } from "@/server/permissions/permissions.data";
+import { MobileSidebarButton } from "@/components/tenant/MobileSidebarButton";
 
 export async function Header() {
   const memberships = await getCurrentUserMemberships();
@@ -12,6 +16,7 @@ export async function Header() {
   let displayName: string | null = null;
   let emailLocal: string = "";
   let shouldPrompt = false;
+  let isAdmin = false;
   if (user) {
     const email = user.email || "";
     emailLocal = email.includes("@") ? email.split("@")[0] : email;
@@ -22,23 +27,31 @@ export async function Header() {
     displayName = data?.display_name ?? null;
     shouldPrompt = !displayName;
   }
+  try {
+    const slug = await getTenantSlug();
+    if (slug) {
+      const tenant = await getTenantBySlug(slug);
+      isAdmin = await hasPermission(tenant.id, "members.manage");
+    }
+  } catch {}
   return (
     <div className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-14 items-center justify-between px-4 sm:px-6 md:px-8">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <MobileSidebarButton isAdmin={isAdmin} />
           <TenantSwitcher memberships={memberships.map((m) => ({ id: m.tenant.id, slug: m.tenant.slug, name: m.tenant.name }))} />
         </div>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 sm:gap-3 text-sm text-muted-foreground">
           {user && (
             <>
               <div className="flex items-center gap-2">
                 <div className="h-7 w-7 rounded-full bg-muted" />
-                <span className="max-w-[200px] truncate">
+                <span className="hidden sm:inline max-w-[200px] truncate">
                   {displayName || emailLocal}
                 </span>
               </div>
               <form action={async () => { "use server"; await signOut(); }}>
-                <Button variant="outline" size="sm" type="submit">Sign out</Button>
+                <Button variant="outline" size="sm" type="submit" aria-label="Sign out">Sign out</Button>
               </form>
             </>
           )}
