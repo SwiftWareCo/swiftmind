@@ -47,11 +47,31 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
   if (!user) return { ok: false, error: "401" };
 
   try {
-    const result = await retrieve({ tenantId, query: q, k: 8, useRerank: false });
-    if ((result.chunks || []).length === 0) {
-      return { ok: true, text: "I couldn't find relevant documents to answer that. Try uploading or refining your question.", citations: [] };
+    // Query-quality gate: skip retrieval for low-signal chitchat
+    const minTokens = Number(process.env.RETRIEVAL_MIN_CONTENT_TOKENS || 3);
+    const tokens = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const stop = new Set(["the","a","an","and","or","but","of","to","in","on","for","with","is","it","this","that","hey","hi","hello","thanks"]);
+    const contentTokens = tokens.filter((t) => !stop.has(t));
+    if (contentTokens.length < minTokens) {
+      return { ok: true, text: "Ask a tenant-specific question (topic, doc, ID…) to get grounded answers with citations.", citations: [] };
     }
-    const citations = result.chunks.map((c) => ({
+
+    const result = await retrieve({ tenantId, query: q, k: 8, useRerank: false });
+    // Thresholds
+    const SCORE_FLOOR = Number(process.env.RETRIEVAL_SCORE_FLOOR || 0.45);
+    const VECTOR_FLOOR = Number(process.env.RETRIEVAL_VECTOR_FLOOR || 0.15);
+    const ALLOW_KW_TOP1 = (process.env.RETRIEVAL_ALLOW_KEYWORD_TOP1_OVERRIDE || "true") === "true";
+
+    const filtered = (result.chunks || []).filter((c, i) => {
+      const passCombined = (c.score ?? 0) >= SCORE_FLOOR;
+      const passVector = (c.v_norm ?? 0) >= VECTOR_FLOOR;
+      const kwTop1 = i === 0 && (c.k_norm ?? 0) >= 0.9;
+      return passCombined && (passVector || (ALLOW_KW_TOP1 && kwTop1));
+    });
+    if (filtered.length === 0) {
+      return { ok: true, text: "I couldn't find relevant documents to answer that. Try refining your question or uploading docs.", citations: [] };
+    }
+    const citations = filtered.map((c) => ({
       doc_id: c.doc_id,
       chunk_idx: c.chunk_idx,
       title: c.title,
@@ -59,7 +79,7 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
       snippet: (c.content || "").slice(0, 300),
       score: (c as unknown as { score?: number }).score ?? null,
     }));
-    const answer = await synthesizeAnswer(q, result.chunks);
+    const answer = await synthesizeAnswer(q, filtered);
 
     try {
       await supabase.from("audit_logs").insert({

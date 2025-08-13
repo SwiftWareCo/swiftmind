@@ -19,6 +19,8 @@ type RetrievedChunk = {
   content: string;
   source_uri?: string | null;
   score: number;
+  v_norm?: number;
+  k_norm?: number;
 };
 
 type RetrievalStats = {
@@ -252,6 +254,8 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
       content: r.content,
       source_uri: r.source_uri ?? null,
       score,
+      v_norm: v,
+      k_norm: k,
     };
   });
 
@@ -262,18 +266,32 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
     return a.chunk_idx - b.chunk_idx;
   });
 
-  // Optional rerank on top candidates
+  // Optional rerank on top candidates (feature-flag + opportunistic trigger)
+  const RERANK_ENABLE = process.env.RETRIEVAL_RERANK_ENABLE === "true" || useRerank;
+  const RERANK_WINDOW = Number(process.env.RETRIEVAL_RERANK_WINDOW || 20);
+  const RERANK_TRIGGER_MAX = Number(process.env.RETRIEVAL_RERANK_TRIGGER_MAX || 0.6);
   let rerankMs = 0;
-  if (useRerank && merged.length > 0) {
+  const shouldRerank = RERANK_ENABLE && merged.length > 0 && (useRerank || (merged[0]?.score ?? 1) < RERANK_TRIGGER_MAX);
+  if (shouldRerank) {
     const t0 = Date.now();
-    const topForRerank = merged.slice(0, Math.min(50, Math.max(k, 20)));
+    const topForRerank = merged.slice(0, Math.min(50, Math.max(k, RERANK_WINDOW)));
     const reranked = await rerankCandidates(query, topForRerank, k);
     merged = reranked;
     rerankMs = Date.now() - t0;
   }
 
-  // Truncate to k
-  const chunks = merged.slice(0, k);
+  // Diversity (MMR-lite): cap max 2 chunks per doc when scores are close
+  const DOC_CAP = Number(process.env.RETRIEVAL_DOC_CAP || 2);
+  const selected: RetrievedChunk[] = [];
+  const perDoc = new Map<string, number>();
+  for (const ch of merged) {
+    const count = perDoc.get(ch.doc_id) || 0;
+    if (count >= DOC_CAP) continue;
+    selected.push(ch);
+    perDoc.set(ch.doc_id, count + 1);
+    if (selected.length >= k) break;
+  }
+  const chunks = selected;
 
   const result: RetrievalResult = {
     chunks,
