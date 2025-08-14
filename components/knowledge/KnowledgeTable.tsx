@@ -1,18 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/server/supabase/client";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { createKbDocsPageQueryOptions } from "@/lib/queryOptions/kbQueryOptions";
-import { DeleteDocButton } from "@/components/knowledge/DeleteDocButton";
 import { PaginationControls } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/knowledge/StatusBadge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useActionState } from "react";
+import { deleteKbDoc, type DeleteState } from "@/server/kb/kb.actions";
+import { toast } from "sonner";
+import { kbDocsKeys } from "@/lib/queryOptions/kbQueryOptions";
 
 type Props = { tenantId: string };
 
 export function KnowledgeTable({ tenantId }: Props) {
   const supabase = useMemo(() => createClient(), []);
+  const queryClient = useQueryClient();
+  const [deleteState, deleteAction, deletePending] = useActionState<DeleteState, FormData>(deleteKbDoc, { ok: false });
 
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -21,6 +27,16 @@ export function KnowledgeTable({ tenantId }: Props) {
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    if (!deleteState) return;
+    if (deleteState.ok) {
+      toast.success("Document deleted");
+      queryClient.invalidateQueries({ queryKey: kbDocsKeys.list(tenantId) });
+    } else if (deleteState.error) {
+      toast.error(deleteState.error);
+    }
+  }, [deleteState, queryClient, tenantId]);
 
   return (
     <div className="mt-6">
@@ -48,9 +64,19 @@ export function KnowledgeTable({ tenantId }: Props) {
                 <TableCell>
                   <time dateTime={d.created_at}>{new Date(d.created_at).toISOString().replace("T", " ").slice(0, 19)}</time>
                 </TableCell>
-                 <TableCell>
-                   <DeleteDocButton docId={d.id} tenantId={tenantId} />
-                 </TableCell>
+                <TableCell>
+                  <ConfirmDialog
+                    title="Delete document?"
+                    description="This will remove the document and its chunks. This action cannot be undone."
+                    confirmLabel={deletePending ? "Deleting..." : "Confirm"}
+                    onConfirm={async () => {
+                      const fd = new FormData();
+                      fd.append("doc_id", d.id);
+                      await deleteAction(fd);
+                    }}
+                    trigger={<button className="text-red-600 underline">Delete</button>}
+                  />
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

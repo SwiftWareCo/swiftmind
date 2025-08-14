@@ -36,7 +36,6 @@ export function SidebarNavClient({ isAdmin }: { isAdmin: boolean }) {
           <NavItem href="/members" label="Members" active={isActive("/members")} />
           <NavItem href="/audit" label="Audit" active={isActive("/audit")} />
           <NavItem href="/settings" label="Settings" active={isActive("/settings")} />
-          <NavItem href="/onboarding" label="Onboarding" active={isActive("/onboarding")} />
         </div>
       )}
     </nav>

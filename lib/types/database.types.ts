@@ -17,7 +17,7 @@ export type Database = {
       audit_logs: {
         Row: {
           action: string
-          actor_user_id: string
+          actor_user_id: string | null
           created_at: string
           id: string
           meta: Json | null
@@ -26,7 +26,7 @@ export type Database = {
         }
         Insert: {
           action: string
-          actor_user_id: string
+          actor_user_id?: string | null
           created_at?: string
           id?: string
           meta?: Json | null
@@ -35,7 +35,7 @@ export type Database = {
         }
         Update: {
           action?: string
-          actor_user_id?: string
+          actor_user_id?: string | null
           created_at?: string
           id?: string
           meta?: Json | null
@@ -45,6 +45,102 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "audit_logs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_messages: {
+        Row: {
+          author_user_id: string | null
+          citations: Json
+          content: string
+          created_at: string
+          id: string
+          role: string
+          session_id: string
+          tenant_id: string
+        }
+        Insert: {
+          author_user_id?: string | null
+          citations?: Json
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          session_id: string
+          tenant_id: string
+        }
+        Update: {
+          author_user_id?: string | null
+          citations?: Json
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          session_id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_author_user_id_fkey"
+            columns: ["author_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_session_fk"
+            columns: ["session_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "chat_sessions"
+            referencedColumns: ["id", "tenant_id"]
+          },
+        ]
+      }
+      chat_sessions: {
+        Row: {
+          created_at: string
+          created_by: string
+          deleted_at: string | null
+          id: string
+          last_message_at: string
+          tenant_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          deleted_at?: string | null
+          id?: string
+          last_message_at?: string
+          tenant_id: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          deleted_at?: string | null
+          id?: string
+          last_message_at?: string
+          tenant_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_sessions_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -313,7 +409,7 @@ export type Database = {
         Row: {
           config: Json | null
           created_at: string
-          created_by: string
+          created_by: string | null
           id: string
           tenant_id: string
           title: string
@@ -323,7 +419,7 @@ export type Database = {
         Insert: {
           config?: Json | null
           created_at?: string
-          created_by: string
+          created_by?: string | null
           id?: string
           tenant_id: string
           title: string
@@ -333,7 +429,7 @@ export type Database = {
         Update: {
           config?: Json | null
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           id?: string
           tenant_id?: string
           title?: string
@@ -341,6 +437,13 @@ export type Database = {
           uri?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "kb_sources_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "kb_sources_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -361,7 +464,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
-          role_key: string
+          role_key?: string
           tenant_id: string
           user_id: string
         }
@@ -373,6 +476,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "memberships_role_fkey"
+            columns: ["tenant_id", "role_key"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["tenant_id", "key"]
+          },
           {
             foreignKeyName: "memberships_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -480,6 +590,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "permissions"
             referencedColumns: ["key"]
+          },
+          {
+            foreignKeyName: "role_permissions_role_fkey"
+            columns: ["tenant_id", "role_key"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["tenant_id", "key"]
           },
         ]
       }

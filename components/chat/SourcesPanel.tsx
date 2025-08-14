@@ -29,7 +29,7 @@ export function SourcesPanel({ items }: { items: CitationItem[] }) {
           <div className="space-y-3">
             {items.length === 0 && <div className="text-sm text-muted-foreground">No sources</div>}
             {items.map((it) => (
-              <div key={it.index} id={`src-${it.index + 1}`} className="rounded-md border p-2">
+              <div key={it.index} id={`src-${it.index + 1}`} className="rounded-md border p-2 scroll-mt-4">
                 <div className="flex items-center justify-between text-xs">
                   <div className="font-medium">[{it.index + 1}] {it.title || "Untitled"}</div>
                   {typeof it.score === "number" && (

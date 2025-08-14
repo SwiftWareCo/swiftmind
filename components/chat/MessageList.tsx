@@ -2,6 +2,7 @@
 
 import { Markdown } from "@/components/chat/Markdown";
 import { CopyButton } from "@/components/chat/MessageActions";
+import { SourceDialog } from "@/components/chat/SourceDialog";
 
 export type ChatMessage = {
   id: string;
@@ -13,7 +14,7 @@ export type ChatMessage = {
   citations?: { index: number; doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null }[];
 };
 
-export function MessageList({ messages, onCitationClick }: { messages: ChatMessage[]; onCitationClick?: (index: number) => void }) {
+export function MessageList({ messages }: { messages: ChatMessage[] }) {
   return (
     <div className="space-y-4">
       {messages.map((m) => (
@@ -34,13 +35,15 @@ export function MessageList({ messages, onCitationClick }: { messages: ChatMessa
           {m.role === "assistant" && (m.citations?.length || 0) > 0 && (
             <div className="mt-2 text-xs text-muted-foreground">
               {(m.citations || []).map((c) => (
-                <button
+                <SourceDialog
                   key={`${c.doc_id}_${c.chunk_idx}`}
-                  className="mr-2 align-super underline"
-                  onClick={() => onCitationClick?.(c.index)}
+                  citation={c}
+                  index={c.index}
                 >
-                  [{c.index + 1}]
-                </button>
+                  <button className="mr-2 align-super underline cursor-pointer">
+                    [{c.index + 1}]
+                  </button>
+                </SourceDialog>
               ))}
             </div>
           )}

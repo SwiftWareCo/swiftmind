@@ -2,7 +2,8 @@ import { getTenantSlug } from "@/lib/utils/tenant";
 import { getTenantBySlug } from "@/server/tenants/tenants.data";
 import { createClient } from "@/server/supabase/server";
 import { ChatRoot, type AskResult } from "@/components/chat/ChatRoot";
-import { askTenantAction } from "@/server/chat/chat.actions";
+import { askInSessionAction, createSessionAction } from "@/server/chat/chat.actions";
+import { ChatPageClient } from "@/components/chat/ChatPageClient";
 
 export default async function ChatPage() {
   const slug = await getTenantSlug();
@@ -23,17 +24,21 @@ export default async function ChatPage() {
     avatarUrl = data?.avatar_url ?? null;
   }
 
-  async function ask(question: string): Promise<AskResult> {
+  async function createSession(): Promise<string> {
     "use server";
-    return askTenantAction({ tenantId: tenant.id, question });
+    const res = await createSessionAction({ tenantId: tenant.id });
+    if (!res.ok) throw new Error(res.error);
+    return res.id;
   }
 
-  return (
-    <div className="container mx-auto max-w-8xl">
-      <h1 className="mb-4 text-2xl font-semibold">Chat</h1>
-      <ChatRoot currentUser={{ displayName, avatarUrl }} ask={ask} />
-    </div>
-  );
+  async function ask(sessionId: string, question: string): Promise<AskResult> {
+    "use server";
+    const res = await askInSessionAction({ tenantId: tenant.id, sessionId, question });
+    if (!res.ok) return res;
+    return { ok: true, text: res.text, citations: res.citations };
+  }
+
+  return <ChatPageClient tenantId={tenant.id} currentUser={{ displayName, avatarUrl }} ask={ask} />;
 }
 
 
