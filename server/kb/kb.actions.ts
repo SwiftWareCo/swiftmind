@@ -164,7 +164,7 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
     return { ok: true };
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Ingest failed";
+    const message: string = e instanceof Error ? e.message : "Ingest failed";
     await supabase
       .from("kb_docs")
       .update({ status: "error", error: message })
@@ -201,7 +201,7 @@ export async function deleteKbDoc(prev: DeleteState | undefined, formData: FormD
   try {
     await requirePermission(tenantId, "kb.write");
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "403";
+    const msg: string = e instanceof Error ? e.message : "403";
     return { ok: false, error: msg };
   }
 
@@ -252,6 +252,74 @@ export async function deleteKbDoc(prev: DeleteState | undefined, formData: FormD
 
   try { revalidatePath("/knowledge"); } catch {}
   return { ok: true };
+}
+
+
+export type PreviewSearchState =
+  | { ok: true; results: Array<{ doc_id: string; title: string; snippet: string; uri: string | null }>; stats?: { vectorMs: number; keywordMs: number; rerankMs: number } }
+  | { ok: false; error: string };
+
+import { retrieve } from "./retrieve";
+
+/**
+ * Read-only server action to preview search results for the compact search UI.
+ * Uses existing retrieval util; respects RLS/roles via user session.
+ */
+export async function previewSearch(
+  prev: PreviewSearchState | undefined,
+  formData: FormData,
+): Promise<PreviewSearchState> {
+  const supabase = await createClient();
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr) return { ok: false, error: "500" };
+  if (!userData?.user) return { ok: false, error: "401" };
+
+  const slug = await getTenantSlug();
+  if (!slug) return { ok: false, error: "404" };
+  let tenantId: string;
+  try {
+    const tenant = await getTenantBySlug(slug);
+    tenantId = tenant.id;
+  } catch {
+    return { ok: false, error: "404" };
+  }
+
+  const query = String(formData.get("query") || "").trim();
+  const kRaw = formData.get("k");
+  const k = Math.max(1, Math.min(5, Number(kRaw) || 3));
+  if (!query) return { ok: true, results: [] };
+
+  try {
+    const result = await retrieve({ tenantId, query, k });
+    const chunks = result.chunks;
+    const docIds = Array.from(new Set(chunks.map((c) => c.doc_id)));
+    const { data: docsRes, error: docsErr } = await supabase
+      .from("kb_docs")
+      .select("id, title, uri")
+      .eq("tenant_id", tenantId)
+      .in("id", docIds);
+    if (docsErr) throw new Error(docsErr.message);
+    const docById = new Map<string, { id: string; title: string | null; uri: string | null }>();
+    for (const d of (docsRes || []) as Array<{ id: string; title: string | null; uri: string | null }>) docById.set(d.id, d);
+
+    function truncate(s: string, max = 220): string {
+      const clean = s.replace(/\s+/g, " ").trim();
+      return clean.length > max ? clean.slice(0, max - 1) + "…" : clean;
+    }
+
+    const results = chunks.map((c) => {
+      const doc = docById.get(c.doc_id);
+      const title = c.title || doc?.title || "Untitled";
+      const uri = (c as { source_uri: string | null }).source_uri || doc?.uri || null;
+      const snippet = truncate(c.content || "");
+      return { doc_id: c.doc_id, title, snippet, uri };
+    });
+
+    return { ok: true, results, stats: result.stats };
+  } catch (e: unknown) {
+    const message: string = e instanceof Error ? e.message : "Search failed";
+    return { ok: false, error: message };
+  }
 }
 
 
