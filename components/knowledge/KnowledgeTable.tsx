@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { createKbDocsPageQueryOptions } from "@/lib/queryOptions/kbQueryOptions";
 import { PaginationControls } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/knowledge/StatusBadge";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DeleteButton } from "@/components/ui/DeleteButton";
 import { useActionState } from "react";
 import { deleteKbDoc, type DeleteState } from "@/server/kb/kb.actions";
 import { toast } from "sonner";
@@ -65,17 +65,15 @@ export function KnowledgeTable({ tenantId }: Props) {
                   <time dateTime={d.created_at}>{new Date(d.created_at).toISOString().replace("T", " ").slice(0, 19)}</time>
                 </TableCell>
                 <TableCell>
-                  <ConfirmDialog
-                    title="Delete document?"
-                    description="This will remove the document and its chunks. This action cannot be undone."
-                    confirmLabel={deletePending ? "Deleting..." : "Confirm"}
-                    onConfirm={async () => {
-                      const fd = new FormData();
-                      fd.append("doc_id", d.id);
-                      await deleteAction(fd);
-                    }}
-                    trigger={<button className="text-red-600 underline">Delete</button>}
-                  />
+                  <form id={`del-doc-${d.id}`} action={deleteAction} className="inline">
+                    <input type="hidden" name="doc_id" value={d.id} />
+                    <DeleteButton
+                      label="Delete"
+                      title="Delete document?"
+                      description="This will remove the document and its chunks. This action cannot be undone."
+                      formId={`del-doc-${d.id}`}
+                    />
+                  </form>
                 </TableCell>
               </TableRow>
             ))}

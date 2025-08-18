@@ -7,7 +7,7 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
+  // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.4"
@@ -405,8 +405,66 @@ export type Database = {
           },
         ]
       }
+      kb_rest_cursors: {
+        Row: {
+          created_at: string
+          id: string
+          item_count: number
+          last_error: string | null
+          last_http_status: number | null
+          last_status: string | null
+          last_synced_at: string | null
+          next_cursor: string | null
+          page_count: number
+          source_id: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_count?: number
+          last_error?: string | null
+          last_http_status?: number | null
+          last_status?: string | null
+          last_synced_at?: string | null
+          next_cursor?: string | null
+          page_count?: number
+          source_id: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_count?: number
+          last_error?: string | null
+          last_http_status?: number | null
+          last_status?: string | null
+          last_synced_at?: string | null
+          next_cursor?: string | null
+          page_count?: number
+          source_id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_rest_cursors_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "kb_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_rest_cursors_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kb_sources: {
         Row: {
+          backoffice_only: boolean
           config: Json | null
           created_at: string
           created_by: string | null
@@ -417,6 +475,7 @@ export type Database = {
           uri: string | null
         }
         Insert: {
+          backoffice_only?: boolean
           config?: Json | null
           created_at?: string
           created_by?: string | null
@@ -427,6 +486,7 @@ export type Database = {
           uri?: string | null
         }
         Update: {
+          backoffice_only?: boolean
           config?: Json | null
           created_at?: string
           created_by?: string | null
@@ -717,7 +777,7 @@ export type Database = {
     }
     Functions: {
       accept_tenant_invite: {
-        Args: { p_token: string; p_display_name: string }
+        Args: { p_display_name: string; p_token: string }
         Returns: Json
       }
       binary_quantize: {
@@ -749,7 +809,7 @@ export type Database = {
         Returns: string
       }
       ensure_user_profile: {
-        Args: { display_name: string; avatar_url: string }
+        Args: { avatar_url: string; display_name: string }
         Returns: undefined
       }
       halfvec_avg: {
@@ -767,6 +827,10 @@ export type Database = {
       halfvec_typmod_in: {
         Args: { "": unknown[] }
         Returns: number
+      }
+      hard_delete_chat_session: {
+        Args: { s: string; t: string }
+        Returns: undefined
       }
       hnsw_bit_support: {
         Args: { "": unknown }
@@ -797,25 +861,25 @@ export type Database = {
         Returns: unknown
       }
       kb_keyword_search: {
-        Args: { t: string; q: string; limit_k?: number }
+        Args: { limit_k?: number; q: string; t: string }
         Returns: {
-          doc_id: string
           chunk_idx: number
-          title: string
           content: string
+          doc_id: string
           score: number
           source_uri: string
+          title: string
         }[]
       }
       kb_vector_search: {
-        Args: { t: string; q: string; limit_k?: number }
+        Args: { limit_k?: number; q: string; t: string }
         Returns: {
-          doc_id: string
           chunk_idx: number
-          title: string
           content: string
+          doc_id: string
           score: number
           source_uri: string
+          title: string
         }[]
       }
       l2_norm: {
@@ -829,11 +893,11 @@ export type Database = {
       list_tenant_members: {
         Args: { p_tenant: string }
         Returns: {
-          user_id: string
-          email: string
           display_name: string
-          role_key: string
+          email: string
           joined_at: string
+          role_key: string
+          user_id: string
         }[]
       }
       sparsevec_out: {
@@ -849,7 +913,7 @@ export type Database = {
         Returns: number
       }
       user_has_permission: {
-        Args: { t: string; perm: string }
+        Args: { perm: string; t: string }
         Returns: boolean
       }
       vector_avg: {

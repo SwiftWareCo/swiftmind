@@ -10,7 +10,7 @@ import { toast } from "sonner";
 // Checkbox used in permissions dialog component
 import { setRolePermissions } from "@/server/permissions/role-permissions.actions";
 import { createRoleAction, deleteRoleAction, updateRoleAction } from "@/server/permissions/roles.actions";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DeleteButton } from "@/components/ui/DeleteButton";
 import { CreateRoleDialog } from "@/components/settings/CreateRoleDialog";
 import { EditPermissionsDialog } from "@/components/settings/EditPermissionsDialog";
 
@@ -162,8 +162,10 @@ export function RolesTab({ tenantId }: { tenantId: string }) {
                   >
                     Edit
                   </Button>
-                  <ConfirmDialog
-                    trigger={<Button size="sm" variant="destructive" disabled={r.key === "member" || deleteRole.isPending}>Delete</Button>}
+                  <DeleteButton
+                    size="sm"
+                    label="Delete"
+                    disabled={r.key === "member" || deleteRole.isPending}
                     title="Delete role?"
                     description="This will remove the role and its permission grants. Users with this role will appear as 'No role assigned'."
                     onConfirm={async () => {
