@@ -10,7 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { createPromptVersionAction, activatePromptVersionAction } from "@/server/settings/settings.actions";
+import { createPromptVersionAction, activatePromptVersionAction, deletePromptVersionAction } from "@/server/settings/settings.actions";
+import { updatePromptVersionAction } from "@/server/settings/settings.actions";
+import { toast } from "sonner";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 type Props = { tenantId: string; isAdmin: boolean };
@@ -72,7 +74,9 @@ export function AssistantPromptSection({ tenantId, isAdmin }: Props) {
       setRoleOverrides({});
       versionsQuery.refetch();
       activeQuery.refetch();
+      toast.success("Created new prompt version" + (autoActivate ? " and activated" : ""));
     },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to create version"),
   });
 
   const activateVersion = useMutation({
@@ -82,7 +86,38 @@ export function AssistantPromptSection({ tenantId, isAdmin }: Props) {
     },
     onSuccess: () => {
       activeQuery.refetch();
+      toast.success("Activated prompt version");
     },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to activate version"),
+  });
+
+  const deleteVersion = useMutation({
+    mutationFn: async (v: number) => {
+      const res = await deletePromptVersionAction({ tenantId, version: v });
+      if (!res.ok) throw new Error(res.error);
+    },
+    onSuccess: () => {
+      versionsQuery.refetch();
+      activeQuery.refetch();
+      // reset selection if it was deleted
+      if (selectedVersion && !versions.find((x) => x.version === selectedVersion)) setSelectedVersion(active?.version ?? null);
+      toast.success("Deleted prompt version");
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to delete version"),
+  });
+
+  const updateVersion = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error("No version selected");
+      const res = await updatePromptVersionAction({ tenantId, version: selected.version, prompt: editPrompt, notes: editNotes || null, roleOverrides: editOverrides });
+      if (!res.ok) throw new Error(res.error);
+    },
+    onSuccess: () => {
+      versionsQuery.refetch();
+      toast.success("Updated prompt version");
+      setEditOpen(false);
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to update version"),
   });
 
   const active = activeQuery.data;
@@ -90,6 +125,18 @@ export function AssistantPromptSection({ tenantId, isAdmin }: Props) {
   const [selectedVersion, setSelectedVersion] = useState<number | null>(active?.version ?? null);
   const selected = versions.find((v) => v.version === (selectedVersion ?? -1)) || (active ? { version: active.version, prompt: active.prompt, notes: "", role_overrides: active.role_overrides, tenant_id: active.tenant_id, created_at: active.updated_at } as unknown as VersionRow : null);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [editNotes, setEditNotes] = useState<string>("");
+  const [editOverrides, setEditOverrides] = useState<Record<string, string>>({});
+
+  const startEdit = () => {
+    if (!selected) return;
+    setEditPrompt(selected.prompt);
+    setEditNotes(selected.notes || "");
+    setEditOverrides(selected.role_overrides || {});
+    setEditOpen(true);
+  };
 
   return (
     <Card className="p-4 space-y-4">
@@ -126,6 +173,15 @@ export function AssistantPromptSection({ tenantId, isAdmin }: Props) {
               if (activateTarget) activateVersion.mutate(activateTarget);
             }}
           />
+          <ConfirmDialog
+            trigger={<Button variant="destructive" disabled={!isAdmin || !selectedVersion || selectedVersion === active?.version || deleteVersion.isPending}>{deleteVersion.isPending ? "Deleting..." : "Delete"}</Button>}
+            title="Delete prompt version?"
+            description="This cannot be undone and will remove the version from history."
+            confirmLabel="Delete"
+            onConfirm={() => {
+              if (selectedVersion) deleteVersion.mutate(selectedVersion);
+            }}
+          />
         </div>
       </div>
 
@@ -136,6 +192,13 @@ export function AssistantPromptSection({ tenantId, isAdmin }: Props) {
           onClick={() => setDiffOpen(true)}
         >
           Compare with active
+        </Button>
+        <Button
+          variant="outline"
+          disabled={!isAdmin || !selected || selected.version === active?.version}
+          onClick={startEdit}
+        >
+          Edit selected
         </Button>
       </div>
 
@@ -197,6 +260,27 @@ export function AssistantPromptSection({ tenantId, isAdmin }: Props) {
                 setDiffOpen(false);
               }}
             />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit prompt version v{selected?.version}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea rows={8} value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} />
+            <Input placeholder="Notes (optional)" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Role overrides</div>
+              <RoleOverridesEditor value={editOverrides} onChange={setEditOverrides} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button disabled={updateVersion.isPending || !selected || editPrompt.trim().length === 0} onClick={() => updateVersion.mutate()}>
+              {updateVersion.isPending ? "Saving..." : "Save changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

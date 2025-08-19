@@ -26,6 +26,9 @@
   - “Compare with active” opens a side‑by‑side diff between the active and selected versions
   - Admins can “Activate” the selected version (confirm dialog)
   - “Create new version” dialog: prompt textarea, optional notes, and a Role overrides editor; optional auto‑activate
+  - “Edit selected” dialog (non‑active only): modify prompt text, notes, and role overrides
+  - “Delete” (non‑active only) with confirm dialog
+  - All mutations show loading and success/error toasts
 - **RAG**
   - Admins can edit; non‑admins see read‑only values
   - Fields include chat model select, temperature, max context, retriever top‑k, overfetch, hybrid/rerank toggles, allowed roles default, and timeout
@@ -33,11 +36,15 @@
 ## Server Actions
 - `createPromptVersionAction({ tenantId, prompt, roleOverrides?, notes?, autoActivate? })`
 - `activatePromptVersionAction({ tenantId, version })`
+- `updatePromptVersionAction({ tenantId, version, prompt, roleOverrides?, notes? })` — cannot edit the active version
+- `deletePromptVersionAction({ tenantId, version })` — cannot delete the active version
 - `updateRagSettingsAction({ tenantId, ...fields })`
 - All guarded by `requirePermission(tenantId, 'settings.manage')`
 - Audit:
   - `settings.prompt.create`
   - `settings.prompt.activate`
+  - `settings.prompt.update`
+  - `settings.prompt.delete`
   - `settings.rag.update`
 
 ## Chat Integration
@@ -95,17 +102,20 @@
 
 ## Acceptance Criteria
 - Any member can view active prompt & current RAG settings
-- Admins can create/activate prompt versions; version history shows notes and timestamps
+- Admins can create, edit (non‑active), delete (non‑active), and activate prompt versions; version history shows notes and timestamps
 - Chat uses the active prompt and respects role overrides
 - Retrieval obeys tenant RAG settings for K, hybrid/rerank, model, temperature, etc.
-- Server actions are permission‑guarded and audited
+- Server actions are permission‑guarded and audited; toasts on success/error
 
 ## Manual Test Plan
-1) Create a new prompt version with notes; activate it; ask a question → behavior matches new prompt
-2) Set `retriever_top_k` from 8 → 5; ask a question → fewer citations/changed stats
-3) Add role override for Support; log in as Support; ask same question → override guidance appears
-4) Flip `rerank_enabled` on/off; observe precision/latency trade‑off
-5) Try changing `embedding_model` without re‑embedding → confirm degraded retrieval (revert)
+1) Create a new prompt version with notes; activate it; ask a question → behavior matches new prompt; toast appears
+2) Select a non‑active version → Edit → change notes and prompt → Save → history updates; toast appears
+3) Try to edit or delete the active version → blocked with clear error toast
+4) Delete a non‑active version → removed from history; toast appears
+5) Set `retriever_top_k` from 8 → 5; ask a question → fewer citations/changed stats
+6) Add role override for Support; log in as Support; ask same question → override guidance appears
+7) Flip `rerank_enabled` on/off; observe precision/latency trade‑off
+8) Try changing `embedding_model` without re‑embedding → confirm degraded retrieval (revert)
 
 ## Troubleshooting
 - Seeing worse retrieval after changing `embedding_model`? Re‑embed KB documents with the same model.

@@ -101,6 +101,96 @@ export async function activatePromptVersionAction(input: ActivatePromptVersionIn
   return { ok: true } as const;
 }
 
+export type DeletePromptVersionInput = { tenantId: string; version: number };
+export async function deletePromptVersionAction(input: DeletePromptVersionInput): Promise<ActionResult> {
+  const { tenantId, version } = input;
+  if (!tenantId || !version) return { ok: false, error: "Missing input" };
+  await requirePermission(tenantId, "settings.manage");
+  const supabase = await createClient();
+  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  if (userErr) return { ok: false, error: "500" };
+  if (!user) return { ok: false, error: "401" };
+
+  // Prevent deleting the currently active version
+  const { data: activeRow, error: activeErr } = await supabase
+    .from("v_active_assistant_prompt")
+    .select("version")
+    .eq("tenant_id", tenantId)
+    .maybeSingle<{ version: number }>();
+  if (activeErr) return { ok: false, error: activeErr.message };
+  if ((activeRow?.version ?? -1) === version) return { ok: false, error: "Cannot delete the active version" };
+
+  const { error: delErr } = await supabase
+    .from("assistant_prompt_versions")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("version", version);
+  if (delErr) return { ok: false, error: delErr.message };
+
+  try {
+    await supabase.from("audit_logs").insert({
+      tenant_id: tenantId,
+      actor_user_id: user.id,
+      action: "settings.prompt.delete",
+      resource: "settings",
+      meta: { version },
+    } as unknown as TablesInsert<"audit_logs">);
+  } catch {}
+
+  return { ok: true } as const;
+}
+
+export type UpdatePromptVersionInput = {
+  tenantId: string;
+  version: number;
+  prompt: string;
+  roleOverrides?: Record<string, string>;
+  notes?: string | null;
+};
+export async function updatePromptVersionAction(input: UpdatePromptVersionInput): Promise<ActionResult> {
+  const { tenantId, version, prompt } = input;
+  if (!tenantId || !version || !prompt) return { ok: false, error: "Missing input" };
+  await requirePermission(tenantId, "settings.manage");
+  const supabase = await createClient();
+  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  if (userErr) return { ok: false, error: "500" };
+  if (!user) return { ok: false, error: "401" };
+
+  // Prevent editing the currently active version
+  const { data: activeRow, error: activeErr } = await supabase
+    .from("v_active_assistant_prompt")
+    .select("version")
+    .eq("tenant_id", tenantId)
+    .maybeSingle<{ version: number }>();
+  if (activeErr) return { ok: false, error: activeErr.message };
+  if ((activeRow?.version ?? -1) === version) return { ok: false, error: "Cannot edit the active version" };
+
+  const payload = {
+    prompt: input.prompt,
+    role_overrides: input.roleOverrides ?? null,
+    notes: input.notes ?? null,
+  } as unknown as Record<string, unknown>;
+
+  const { error: updErr } = await supabase
+    .from("assistant_prompt_versions")
+    .update(payload)
+    .eq("tenant_id", tenantId)
+    .eq("version", version);
+  if (updErr) return { ok: false, error: updErr.message };
+
+  try {
+    await supabase.from("audit_logs").insert({
+      tenant_id: tenantId,
+      actor_user_id: user.id,
+      action: "settings.prompt.update",
+      resource: "settings",
+      meta: { version },
+    } as unknown as TablesInsert<"audit_logs">);
+  } catch {}
+
+  return { ok: true } as const;
+}
+
 export type UpdateRagSettingsInput = {
   tenantId: string;
   chat_model: string;

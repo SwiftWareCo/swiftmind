@@ -7,6 +7,7 @@ import type { TablesInsert } from "@/lib/types/database.types";
 import { extractTextAndSections, hashContent } from "@/lib/kb/extract";
 import { chunkContent } from "@/lib/kb/chunk";
 import { embedChunks } from "@/lib/kb/embed";
+import { extractPdfLayout, chunkLinesToLayoutChunks } from "@/lib/kb/pdfLayout";
 import { revalidatePath } from "next/cache";
 
 export type UploadState = { ok: boolean; error?: string };
@@ -47,48 +48,88 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
   const startedAt = Date.now();
 
-  // Create or identify source
-  const sourceInsert: TablesInsert<"kb_sources"> = {
-    tenant_id: tenantId,
-    created_by: userData.user.id,
-    type: "upload",
-    title: file.name,
-    uri: null,
-    config: null,
-  } as unknown as TablesInsert<"kb_sources">;
+  // Re-ingest detection: if a prior upload with the same title exists, reuse doc and replace chunks
+  let usingExistingDoc = false;
+  let sourceId: string | null = null;
+  let docId: string | null = null;
 
-  const { data: sourceRow, error: sourceErr } = await supabase
+  // Try to locate an existing upload source and doc by title
+  const { data: existingSource } = await supabase
     .from("kb_sources")
-    .insert(sourceInsert)
     .select("id")
-    .single<{ id: string }>();
-  if (sourceErr) {
-    console.error(sourceErr);
-    return { ok: false, error: "Failed to create source" };
+    .eq("tenant_id", tenantId)
+    .eq("type", "upload")
+    .eq("title", file.name)
+    .maybeSingle<{ id: string }>();
+  if (existingSource?.id) {
+    sourceId = existingSource.id;
+    const { data: existingDoc } = await supabase
+      .from("kb_docs")
+      .select("id, version")
+      .eq("tenant_id", tenantId)
+      .eq("source_id", sourceId)
+      .eq("title", file.name)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string; version: number }>();
+    if (existingDoc?.id) {
+      usingExistingDoc = true;
+      docId = existingDoc.id;
+      // mark as pending and bump version
+      await supabase
+        .from("kb_docs")
+        .update({ status: "pending", error: null, version: (existingDoc.version || 1) + 1 })
+        .eq("id", docId)
+        .eq("tenant_id", tenantId);
+    }
   }
 
-  const docInsert: TablesInsert<"kb_docs"> = {
-    tenant_id: tenantId,
-    source_id: sourceRow.id,
-    title: file.name,
-    status: "pending",
-    uri: null,
-    version: 1,
-  } as unknown as TablesInsert<"kb_docs">;
+  if (!sourceId) {
+    const sourceInsert: TablesInsert<"kb_sources"> = {
+      tenant_id: tenantId,
+      created_by: userData.user.id,
+      type: "upload",
+      title: file.name,
+      uri: null,
+      config: null,
+    } as unknown as TablesInsert<"kb_sources">;
+    const { data: sourceRow, error: sourceErr } = await supabase
+      .from("kb_sources")
+      .insert(sourceInsert)
+      .select("id")
+      .single<{ id: string }>();
+    if (sourceErr) {
+      console.error(sourceErr);
+      return { ok: false, error: "Failed to create source" };
+    }
+    sourceId = sourceRow.id;
+  }
 
-  const { data: docRow, error: docErr } = await supabase
-    .from("kb_docs")
-    .insert(docInsert)
-    .select("id")
-    .single<{ id: string }>();
-  if (docErr) {
-    console.error(docErr);
-    return { ok: false, error: "Failed to create document" };
+  if (!docId) {
+    const docInsert: TablesInsert<"kb_docs"> = {
+      tenant_id: tenantId,
+      source_id: sourceId,
+      title: file.name,
+      status: "pending",
+      uri: null,
+      version: 1,
+    } as unknown as TablesInsert<"kb_docs">;
+
+    const { data: docRow, error: docErr } = await supabase
+      .from("kb_docs")
+      .insert(docInsert)
+      .select("id")
+      .single<{ id: string }>();
+    if (docErr) {
+      console.error(docErr);
+      return { ok: false, error: "Failed to create document" };
+    }
+    docId = docRow.id;
   }
 
   const { data: jobRow, error: jobErr } = await supabase
     .from("kb_ingest_jobs")
-    .insert({ tenant_id: tenantId, source_id: sourceRow.id, doc_id: docRow.id, status: "queued" } as TablesInsert<"kb_ingest_jobs">)
+    .insert({ tenant_id: tenantId, source_id: sourceId!, doc_id: docId!, status: "queued" } as TablesInsert<"kb_ingest_jobs">)
     .select("id")
     .single<{ id: string }>();
   if (jobErr) {
@@ -100,7 +141,7 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
   // Flip to processing
   await supabase.from("kb_ingest_jobs").update({ status: "processing", error: null }).eq("id", jobId).eq("tenant_id", tenantId);
-  await supabase.from("kb_docs").update({ status: "processing", error: null }).eq("id", docRow.id).eq("tenant_id", tenantId);
+  await supabase.from("kb_docs").update({ status: "processing", error: null }).eq("id", docId!).eq("tenant_id", tenantId);
 
 
   try {
@@ -109,26 +150,82 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
 
 
-    const { text, sections, fileExt } = await extractTextAndSections(buffer, file.name);
-    if (!text.trim()) throw new Error("No extractable text content");
+    // Branch: PDF layout-aware path vs legacy text extraction
+    const lower = file.name.toLowerCase();
+    const ext = (lower.match(/\.([a-z0-9]+)$/)?.[1] || "").toLowerCase();
+    let rows: TablesInsert<"kb_chunks">[] = [] as unknown as TablesInsert<"kb_chunks">[];
+    let contentHash = "";
+    if (ext === "pdf") {
+      const { lines, text, pageCount, kv_candidates } = await extractPdfLayout(buffer);
+      if (!text.trim()) throw new Error("No extractable text content");
+      contentHash = await hashContent(text);
+      const layoutChunks = chunkLinesToLayoutChunks(lines, kv_candidates, 1000);
 
-    const contentHash = await hashContent(text);
-    const chunks = chunkContent(sections, { targetTokens: 1000, overlapTokens: 120 });
+      // Optional compact debug logging for first N PDFs
+      const DEBUG_FIRST_N = Number(process.env.PDF_INGEST_DEBUG_FIRST_N || 0);
+      if (DEBUG_FIRST_N > 0) {
+        const { data: countRow } = await supabase
+          .from("kb_docs")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("source_id", sourceId!)
+          .eq("title", file.name);
+        const idx = (countRow as unknown as { count?: number } | null)?.count ?? 0;
+        if (idx <= DEBUG_FIRST_N) {
+          const sample = kv_candidates.slice(0, 3).map((kv) => ({
+            label: kv.label,
+            value_preview: kv.value.length > 6 ? "…" + kv.value.slice(-6) : kv.value,
+            page: kv.page,
+          }));
+          console.log(
+            JSON.stringify({
+              pdf_ingest_debug: true,
+              file: file.name,
+              pages: pageCount,
+              line_count: lines.length,
+              chunk_count: layoutChunks.length,
+              kv_sample: sample,
+            }),
+          );
+        }
+      }
 
+      // If re-ingest, wipe old chunks first
+      if (usingExistingDoc) {
+        await supabase.from("kb_chunks").delete().eq("tenant_id", tenantId).eq("doc_id", docId!);
+      }
 
-    const embeddings = await embedChunks(chunks.map((c) => c.content));
-
-    // Insert chunks
-    const rows = chunks.map((c, idx) => ({
-      tenant_id: tenantId,
-      doc_id: docRow.id,
-      chunk_idx: idx,
-      title: c.title ?? null,
-      content: c.content,
-      embedding: JSON.stringify(embeddings[idx]),
-      allowed_roles: allowedRoles,
-      metadata: { sectionIndex: c.sectionIndex, fileExt } as unknown,
-    })) as unknown as TablesInsert<"kb_chunks">[];
+      const embeddings = await embedChunks(layoutChunks.map((c) => c.content));
+      rows = layoutChunks.map((c, idx) => ({
+        tenant_id: tenantId,
+        doc_id: docId!,
+        chunk_idx: idx,
+        title: null,
+        content: c.content,
+        embedding: JSON.stringify(embeddings[idx]),
+        allowed_roles: allowedRoles,
+        metadata: { sectionIndex: c.sectionIndex, fileExt: "pdf", page_start: c.meta.page_start, page_end: c.meta.page_end, bbox_union: c.meta.bbox_union, kv_candidates: c.meta.kv_candidates, line_bboxes: c.meta.line_bboxes } as unknown,
+      })) as unknown as TablesInsert<"kb_chunks">[];
+    } else {
+      const { text, sections, fileExt } = await extractTextAndSections(buffer, file.name);
+      if (!text.trim()) throw new Error("No extractable text content");
+      contentHash = await hashContent(text);
+      const chunks = chunkContent(sections, { targetTokens: 1000, overlapTokens: 120 });
+      if (usingExistingDoc) {
+        await supabase.from("kb_chunks").delete().eq("tenant_id", tenantId).eq("doc_id", docId!);
+      }
+      const embeddings = await embedChunks(chunks.map((c) => c.content));
+      rows = chunks.map((c, idx) => ({
+        tenant_id: tenantId,
+        doc_id: docId!,
+        chunk_idx: idx,
+        title: c.title ?? null,
+        content: c.content,
+        embedding: JSON.stringify(embeddings[idx]),
+        allowed_roles: allowedRoles,
+        metadata: { sectionIndex: c.sectionIndex, fileExt } as unknown,
+      })) as unknown as TablesInsert<"kb_chunks">[];
+    }
 
     // Batch insert to avoid payload limits
     const batchSize = 100;
@@ -142,7 +239,7 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
     await supabase
       .from("kb_docs")
       .update({ status: "ready", content_hash: contentHash, error: null })
-      .eq("id", docRow.id)
+      .eq("id", docId!)
       .eq("tenant_id", tenantId);
 
     await supabase
@@ -158,7 +255,7 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
         actor_user_id: userData.user.id,
         action: "kb.ingest",
         resource: "doc",
-        meta: { doc_id: docRow.id, source_id: sourceRow.id, chunk_count: rows.length, elapsed_ms: Date.now() - startedAt },
+        meta: { doc_id: docId!, source_id: sourceId!, chunk_count: rows.length, elapsed_ms: Date.now() - startedAt },
       } as unknown as TablesInsert<"audit_logs">);
     } catch {}
 
@@ -168,7 +265,7 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
     await supabase
       .from("kb_docs")
       .update({ status: "error", error: message })
-      .eq("id", docRow.id)
+      .eq("id", docId!)
       .eq("tenant_id", tenantId);
     await supabase
       .from("kb_ingest_jobs")

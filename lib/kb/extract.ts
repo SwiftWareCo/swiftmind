@@ -24,9 +24,9 @@ export async function extractTextAndSections(buffer: Buffer, fileName: string): 
 }
 
 async function extractFromPdf(buffer: Buffer, fileExt: string) {
-  const { default: pdfParse } = await import("pdf-parse");
-  const res = await pdfParse(buffer);
-  const text = (res.text || "").replace(/\u0000/g, "").trim();
+  // For uniformity, use layout-aware extraction for PDFs; then split into sections by headings
+  const { extractPdfLayout } = await import("./pdfLayout");
+  const { text } = await extractPdfLayout(buffer);
   const sections = splitByHeadings(text);
   return { text, sections, fileExt };
 }

@@ -37,7 +37,8 @@ Short, high-signal reference for the Knowledge ingestion feature (multi-tenant, 
 - UI primitives: `components/ui/table.tsx`, `components/ui/alert-dialog.tsx`, `components/ui/button.tsx`, `components/ui/sonner.tsx`
 
 ## Extraction & Chunking
-- `lib/kb/extract.ts` — PDF (pdf-parse with Buffer), MD (remark + strip-markdown), HTML (jsdom), TXT; computes `sha256` content hash
+- `lib/kb/extract.ts` — PDF (layout-aware via `pdfjs-dist`), MD (remark + strip-markdown), HTML (jsdom), TXT; computes `sha256` content hash
+- `lib/kb/pdfLayout.ts` — layout tokenization (tokens with page/x/y/w/h/font), line reconstruction by y-bands and x-clusters, generic KV detection, structure-preserving chunking with bbox and page metadata
 - `lib/kb/chunk.ts` — ~1k token equivalent chunks (chars≈tokens×4) with ~120 overlap
 - `lib/kb/embed.ts` — batches to OpenAI embeddings and stores vector JSON
 
@@ -57,6 +58,6 @@ Short, high-signal reference for the Knowledge ingestion feature (multi-tenant, 
 - Tenant isolation: same filename in A vs B should list separately
 
 ## Env & deps
-- Env: `OPENAI_API_KEY`
-- Deps: `@tanstack/react-query`, `pdf-parse`, `jsdom`, `unified`, `remark-parse`, `strip-markdown`
+- Env: `OPENAI_API_KEY`, optional `PDFJS_STANDARD_FONTS_URL` (defaults to CDN)
+- Deps: `@tanstack/react-query`, `pdfjs-dist`, `@ungap/with-resolvers`, `jsdom`, `unified`, `remark-parse`, `strip-markdown`
 
