@@ -22,7 +22,7 @@
 - `/connections` — Gmail connect/disconnect; status (admin-only)
 - `/members` — Paginated members table (admin-only)
 - `/audit` — Paginated audit log table (admin-only)
-- `/settings` — Minimal org info (admin-only)
+- `/settings` — Organization; Assistant (versioned prompt) and RAG tabs (admins can mutate via `settings.manage`; members read-only)
 - `/onboarding` — Admin-only wizard: bring data (upload, optional Gmail) → finish
 
 ## Guards & Permissions

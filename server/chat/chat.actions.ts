@@ -4,19 +4,30 @@ import "server-only";
 import { createClient } from "@/server/supabase/server";
 import type { TablesInsert } from "@/lib/types/database.types";
 import { retrieve } from "@/server/kb/retrieve";
+import { getActiveAssistantPrompt, getTenantRagSettings } from "@/server/settings/settings.data";
 import { getRecentMessagesForContext } from "@/server/chat/chat.data";
 
 type AskInput = { tenantId: string; question: string };
 type AskResult = { ok: true; text: string; citations: { doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null; snippet?: string | null; score?: number | null }[] } | { ok: false; error: string };
 
-async function synthesizeAnswer(question: string, contextChunks: { title: string | null; content: string; source_uri?: string | null; doc_id: string; chunk_idx: number }[]): Promise<string> {
+async function synthesizeAnswer(params: { tenantId: string; userRole: string | null; question: string; contextChunks: { title: string | null; content: string; source_uri?: string | null; doc_id: string; chunk_idx: number }[]; chatModel?: string; temperature?: number }): Promise<string> {
+  const { tenantId, userRole, question, contextChunks, chatModel, temperature } = params;
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     // Fallback: simple concatenation
     const joined = contextChunks.map((c, i) => `(${i + 1}) ${c.content}`).join("\n\n");
     return `Based on the following sources, here is an answer:\n\n${joined}`;
   }
-  const sys = "You are a helpful assistant. Answer concisely using only the provided context. Cite sources as [1], [2], ... where relevant. If unsure, say you don't know.";
+  let sys = "You are a helpful assistant. Answer concisely using only the provided context. Cite sources as [1], [2], ... where relevant. If unsure, say you don't know.";
+  try {
+    const active = await getActiveAssistantPrompt(tenantId);
+    if (active) {
+      const base = active.prompt || "";
+      const overrides = (active.role_overrides || {}) as Record<string, string>;
+      const extra = userRole && overrides[userRole] ? `\n\nRole-specific guidance (${userRole}): ${overrides[userRole]}` : "";
+      sys = `${base}${extra}`.trim();
+    }
+  } catch {}
   const ctx = contextChunks.map((c, i) => `[#${i + 1}] ${c.title ? c.title + " — " : ""}${(c.content || "").slice(0, 2000)}`).join("\n\n");
   const user = `Question: ${question}\n\nContext:\n${ctx}`;
 
@@ -24,8 +35,8 @@ async function synthesizeAnswer(question: string, contextChunks: { title: string
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0.2,
+      model: chatModel || "gpt-4o-mini",
+      temperature: typeof temperature === "number" ? temperature : 0.2,
       messages: [
         { role: "system", content: sys },
         { role: "user", content: user },
@@ -57,7 +68,11 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
       return { ok: true, text: "Ask a tenant-specific question (topic, doc, ID…) to get grounded answers with citations.", citations: [] };
     }
 
-    const result = await retrieve({ tenantId, query: q, k: 8, useRerank: false });
+    // RAG controls per-tenant
+    const rag = await getTenantRagSettings(tenantId);
+    const k = rag?.retriever_top_k ?? 8;
+    const useRerank = Boolean(rag?.rerank_enabled);
+    const result = await retrieve({ tenantId, query: q, k, useRerank });
     // Thresholds
     const SCORE_FLOOR = Number(process.env.RETRIEVAL_SCORE_FLOOR || 0.45);
     const VECTOR_FLOOR = Number(process.env.RETRIEVAL_VECTOR_FLOOR || 0.15);
@@ -80,7 +95,20 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
       snippet: (c.content || "").slice(0, 300),
       score: (c as unknown as { score?: number }).score ?? null,
     }));
-    const answer = await synthesizeAnswer(q, filtered);
+    // Resolve user's role within tenant (via memberships)
+    let roleKey: string | null = null;
+    try {
+      const { data: m } = await supabase
+        .from("memberships")
+        .select("role_key")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", user.id)
+        .limit(1)
+        .maybeSingle<{ role_key: string }>();
+      roleKey = m?.role_key ?? null;
+    } catch {}
+
+    const answer = await synthesizeAnswer({ tenantId, userRole: roleKey, question: q, contextChunks: filtered, chatModel: rag?.chat_model, temperature: rag?.temperature });
 
     try {
       await supabase.from("audit_logs").insert({

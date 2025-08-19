@@ -8,14 +8,11 @@ Contents:
 - `features/auth.md`: authentication (routes, actions, middleware, env, Supabase)
 - `features/integrations.md`: integration guides (OAuth, secrets, providers)
 
-Quick links:
-- Roles/permissions/audit: `Epics/EpicC.md`
-- Roadmap: `roadmap.md`
 
 ## Current snapshot (important)
 - Multi-tenant via subdomain; middleware sets `x-tenant-slug`; see `features/tenancy.md` and `app/(app)/layout.tsx`.
 - Authentication with Supabase; auth routes live under `app/auth/*`; see `features/auth.md`.
-- Authorization helpers from Epic C: `requirePermission(tenantId, perm)`; audit logs in `audit_logs`; see `Epics/EpicC.md`.
+- Authorization helpers from Epic C: `requirePermission(tenantId, perm)`; audit logs in `audit_logs`;.
 - Integrations framework in place; first provider: Google Gmail (OAuth + encrypted secrets). See `features/integrations-google-gmail.md`.
 
 

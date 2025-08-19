@@ -23,7 +23,7 @@ Guards
   - Example: membership role updates use admin client writes after members.manage passes to avoid RLS friction
 
 UI (Admin)
-- Settings → Roles (single tab)
+- Settings → Roles (single tab); Assistant and RAG tabs are admin-only for mutations via `settings.manage`
   - Create role (lowercase key enforced); name/description stored per tenant
   - Edit role & permissions dialog:
     - Role name and description editable at the top

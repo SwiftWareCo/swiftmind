@@ -2,6 +2,7 @@
 import "server-only";
 
 import { createClient } from "@/server/supabase/server";
+import { getTenantRagSettings } from "@/server/settings/settings.data";
 import { embedQuery } from "@/lib/kb/embed";
 
 type RetrievalParams = {
@@ -151,10 +152,13 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
   if (userErr) throw new Error("500");
   if (!userData?.user) throw new Error("401");
 
+  const rag = await getTenantRagSettings(tenantId);
+  const effectiveK = rag?.retriever_top_k ?? k;
   const qEmbed = await embedQuery(query);
 
-  const vectorLimit = Math.max(k, 20);
-  const keywordLimit = Math.max(k, 20);
+  const overfetch = rag?.overfetch ?? 50;
+  const vectorLimit = Math.max(effectiveK, Math.min(100, overfetch));
+  const keywordLimit = Math.max(effectiveK, Math.min(100, overfetch));
 
   type Row = { doc_id: string; chunk_idx: number; title: string | null; content: string; score: number; source_uri?: string | null };
 
@@ -190,10 +194,24 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
     }
   }
 
-  const [{ rows: vectorRows, ms: vectorMs }, { rows: keywordRows, ms: keywordMs }] = await Promise.all([
-    vectorSearch(),
-    keywordSearch(),
-  ]);
+  // Hybrid toggle: optionally skip keyword search
+  let vectorRows: Row[] = [];
+  let keywordRows: Row[] = [];
+  let vectorMs = 0;
+  let keywordMs = 0;
+  if (rag?.hybrid_enabled ?? true) {
+    const both = await Promise.all([vectorSearch(), keywordSearch()]);
+    vectorRows = both[0].rows;
+    vectorMs = both[0].ms;
+    keywordRows = both[1].rows;
+    keywordMs = both[1].ms;
+  } else {
+    const only = await vectorSearch();
+    vectorRows = only.rows;
+    vectorMs = only.ms;
+    keywordRows = [];
+    keywordMs = 0;
+  }
 
   // Normalize scores independently
   const vectorScores = vectorRows.map((r) => r.score);
@@ -267,15 +285,15 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
   });
 
   // Optional rerank on top candidates (feature-flag + opportunistic trigger)
-  const RERANK_ENABLE = process.env.RETRIEVAL_RERANK_ENABLE === "true" || useRerank;
+  const RERANK_ENABLE = (rag?.rerank_enabled ?? false) || process.env.RETRIEVAL_RERANK_ENABLE === "true" || useRerank;
   const RERANK_WINDOW = Number(process.env.RETRIEVAL_RERANK_WINDOW || 20);
   const RERANK_TRIGGER_MAX = Number(process.env.RETRIEVAL_RERANK_TRIGGER_MAX || 0.6);
   let rerankMs = 0;
   const shouldRerank = RERANK_ENABLE && merged.length > 0 && (useRerank || (merged[0]?.score ?? 1) < RERANK_TRIGGER_MAX);
   if (shouldRerank) {
     const t0 = Date.now();
-    const topForRerank = merged.slice(0, Math.min(50, Math.max(k, RERANK_WINDOW)));
-    const reranked = await rerankCandidates(query, topForRerank, k);
+    const topForRerank = merged.slice(0, Math.min(50, Math.max(effectiveK, RERANK_WINDOW)));
+    const reranked = await rerankCandidates(query, topForRerank, effectiveK);
     merged = reranked;
     rerankMs = Date.now() - t0;
   }
@@ -289,7 +307,7 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
     if (count >= DOC_CAP) continue;
     selected.push(ch);
     perDoc.set(ch.doc_id, count + 1);
-    if (selected.length >= k) break;
+    if (selected.length >= effectiveK) break;
   }
   const chunks = selected;
 
