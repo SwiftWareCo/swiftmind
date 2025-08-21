@@ -57,6 +57,6 @@ export async function retrieve(params: Params): Promise<Result>;
 ## Notes
 - Ensure `OPENAI_API_KEY` is set server-side.
 - If HNSW index creation fails (managed Postgres), the SQL falls back to IVFFLAT.
-- You may tune weights, limits, and rerank model (`gpt-4o-mini` used by default).
+- You may tune weights, limits, and rerank model (`gpt-4o-mini` used by default). The chat layer also ensures inclusion of the single strongest keyword candidate (k_norm ≥ 0.5) when needed, to robustly handle exact-term queries without large token usage.
 
 

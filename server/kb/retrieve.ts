@@ -65,6 +65,24 @@ function setInCache(key: string, value: RetrievalResult, ttlMs = DEFAULT_TTL_MS)
   cache.set(key, { at: Date.now(), ttlMs, value });
 }
 
+function expandKeywordSynonyms(q: string): string {
+  const lower = q.toLowerCase();
+  const expansions: string[] = [];
+  if (/(account\s*number|account\s*no\.?|acct\.?)/i.test(lower)) {
+    expansions.push('"account number"', '"account no"', '"account #"', 'acct', '"acct #"', '"acct #:"');
+  }
+  if (/(receipt\s*number|receipt\s*no\.?)/i.test(lower)) {
+    expansions.push('"receipt number"', '"receipt no"', '"receipt #"');
+  }
+  if (/(cheque|check)/i.test(lower)) {
+    expansions.push('cheque', 'check');
+  }
+  if (expansions.length === 0) return q;
+  // Use websearch ORs by joining with OR
+  const dedup = Array.from(new Set(expansions));
+  return `${q} OR ${dedup.join(' OR ')}`;
+}
+
 function minMaxNormalize(values: number[]): (score: number) => number {
   if (values.length === 0) return () => 0;
   const min = Math.min(...values);
@@ -159,6 +177,7 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
   const overfetch = rag?.overfetch ?? 50;
   const vectorLimit = Math.max(effectiveK, Math.min(100, overfetch));
   const keywordLimit = Math.max(effectiveK, Math.min(100, overfetch));
+  const keywordQuery = expandKeywordSynonyms(query);
 
   type Row = { doc_id: string; chunk_idx: number; title: string | null; content: string; score: number; source_uri?: string | null };
 
@@ -176,7 +195,7 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
     const t0 = Date.now();
     try {
       const { data, error } = await supabase
-        .rpc("kb_keyword_search", { t: tenantId, q: query, limit_k: keywordLimit })
+        .rpc("kb_keyword_search", { t: tenantId, q: keywordQuery, limit_k: keywordLimit })
         .select()
         .returns<Row[]>();
       if (error) throw error;
@@ -186,7 +205,7 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
         .from("kb_chunks")
         .select("doc_id, chunk_idx, title, content")
         .eq("tenant_id", tenantId)
-        .textSearch("tsv", query, { type: "websearch" })
+        .textSearch("tsv", keywordQuery, { type: "websearch" })
         .limit(keywordLimit);
       if (error) throw error;
       const rows: Row[] = (data || []).map((r) => ({ ...r, score: 0.5 }));
@@ -310,6 +329,9 @@ export async function retrieve(params: RetrievalParams): Promise<RetrievalResult
     if (selected.length >= effectiveK) break;
   }
   const chunks = selected;
+
+  // Debug logging for gating & selection (dev only)
+  // Debug logging disabled by default; enable temporarily when tuning
 
   const result: RetrievalResult = {
     chunks,

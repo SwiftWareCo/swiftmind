@@ -78,12 +78,38 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
     const VECTOR_FLOOR = Number(process.env.RETRIEVAL_VECTOR_FLOOR || 0.15);
     const ALLOW_KW_TOP1 = (process.env.RETRIEVAL_ALLOW_KEYWORD_TOP1_OVERRIDE || "true") === "true";
 
-    const filtered = (result.chunks || []).filter((c, i) => {
+    let filtered = (result.chunks || []).filter((c, i) => {
       const passCombined = (c.score ?? 0) >= SCORE_FLOOR;
       const passVector = (c.v_norm ?? 0) >= VECTOR_FLOOR;
       const kwTop1 = i === 0 && (c.k_norm ?? 0) >= 0.9;
       return passCombined && (passVector || (ALLOW_KW_TOP1 && kwTop1));
     });
+
+    // Debug: log gating decisions when enabled
+    // Gating debug disabled by default; enable temporarily when tuning
+
+    // Inclusion: ensure the single strongest keyword candidate is present if reasonably strong
+    try {
+      const chunks = result.chunks || [];
+      let bestIdx = -1;
+      let bestKw = -1;
+      for (let i = 0; i < chunks.length; i++) {
+        const kw = (chunks[i] as unknown as { k_norm?: number }).k_norm ?? 0;
+        if (kw > bestKw) {
+          bestKw = kw;
+          bestIdx = i;
+        }
+      }
+      const KW_INCLUDE_FLOOR = 0.5;
+      if (bestIdx >= 0 && bestKw >= KW_INCLUDE_FLOOR) {
+        const candidate = chunks[bestIdx]!;
+        const already = filtered.some((c) => c.doc_id === candidate.doc_id && c.chunk_idx === candidate.chunk_idx);
+        if (!already) {
+          filtered = [...filtered, candidate];
+          // Injection debug disabled by default; enable temporarily when tuning
+        }
+      }
+    } catch {}
     if (filtered.length === 0) {
       return { ok: true, text: "I couldn't find relevant documents to answer that. Try refining your question or uploading docs.", citations: [] };
     }

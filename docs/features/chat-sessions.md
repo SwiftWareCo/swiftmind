@@ -51,9 +51,10 @@ Short, high-signal reference for the persistent chat feature with session manage
   - Each citation opens `SourceDialog` with full source details
 
 - **SourceDialog**: Modal showing complete citation information
-  - Full snippet text, relevance percentage, document title
+  - Full chunk text (fetched live), relevance percentage, document title
+  - Prefetched for instant open; shadcn ScrollArea with explicit error + Retry on failure
   - External source links open in new tabs
-  - Better UX than sidebar-only sources
+  - Same modal opens from inline citations and from the Sources panel for consistency
 
 - **ChatComposer**: Auto-growing textarea with send button
   - ChatGPT-style: auto-resize (max 200px), circular arrow-up send button
@@ -81,7 +82,7 @@ Short, high-signal reference for the persistent chat feature with session manage
 
 ## Citations & Sources
 - **Per-message persistence**: Each assistant message stores its own citations
-- **Dialog access**: Click any [1], [2] citation to see full source details
+- **Dialog access**: Click any [1], [2] citation or the Sources panel title/number to see full source details
 - **Persistent after refresh**: Citations hydrate from database on page load
 - **Relevance scoring**: Shows percentage in dialog with source snippet
 - **External links**: Direct access to source documents when available

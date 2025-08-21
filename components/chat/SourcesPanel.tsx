@@ -1,16 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { SourceDialog } from "@/components/chat/SourceDialog";
 
 export type CitationItem = {
   index: number;
+  doc_id: string;
+  chunk_idx: number;
   title: string | null;
   snippet?: string | null;
   score?: number | null;
   source_uri?: string | null;
+  used?: boolean;
 };
 
-export function SourcesPanel({ items }: { items: CitationItem[] }) {
+export function SourcesPanel({ items, queryTerms = [] }: { items: CitationItem[]; queryTerms?: string[] }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="md:sticky md:top-16">
@@ -31,12 +35,32 @@ export function SourcesPanel({ items }: { items: CitationItem[] }) {
             {items.map((it) => (
               <div key={it.index} id={`src-${it.index + 1}`} className="rounded-md border p-2 scroll-mt-4">
                 <div className="flex items-center justify-between text-xs">
-                  <div className="font-medium">[{it.index + 1}] {it.title || "Untitled"}</div>
-                  {typeof it.score === "number" && (
-                    <div className="text-muted-foreground" title="Relative relevance among returned sources">
-                      {Math.round(it.score * 100)}%
-                    </div>
-                  )}
+                  <SourceDialog
+                    citation={{
+                      doc_id: it.doc_id,
+                      chunk_idx: it.chunk_idx,
+                      title: it.title,
+                      source_uri: it.source_uri,
+                      snippet: it.snippet,
+                      score: it.score ?? null,
+                    }}
+                    index={it.index}
+                    highlightTerms={queryTerms}
+                  >
+                    <button className="font-medium underline hover:cursor-pointer hover:text-blue-500">[{it.index + 1}] {it.title || "Untitled"}</button>
+                  </SourceDialog>
+                  <div className="flex items-center gap-2">
+                    {typeof it.score === "number" && (
+                      <div className="text-muted-foreground" title="Relative relevance among returned sources">
+                        {Math.round(it.score * 100)}%
+                      </div>
+                    )}
+                    {it.used && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground" title="Was this chunk included in the model context?">
+                        Used in answer
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {it.snippet && <ExpandableSnippet snippet={it.snippet} />}
                 {it.source_uri && (

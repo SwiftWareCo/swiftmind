@@ -93,12 +93,37 @@ export function ChatPageClient({ tenantId, currentUser, ask }: Props) {
   const initialCitations = useMemo(() => {
     const rows = messageRows || [];
     const lastAssistant = [...rows].reverse().find((r) => r.role === "assistant");
-    if (!lastAssistant || !Array.isArray(lastAssistant.citations)) return [] as Array<{ index: number; title: string | null; snippet?: string | null; score?: number | null; source_uri?: string | null }>;
+    if (!lastAssistant || !Array.isArray(lastAssistant.citations)) return [] as Array<{ index: number; doc_id: string; chunk_idx: number; title: string | null; snippet?: string | null; score?: number | null; source_uri?: string | null; used?: boolean }>;
     const list = (lastAssistant.citations as Array<{
       doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null; snippet?: string | null; score?: number | null;
     }>);
-    return list.map((c, i) => ({ index: i, title: c.title, snippet: c.snippet ?? null, score: c.score ?? null, source_uri: c.source_uri ?? undefined }));
+    return list.map((c, i) => ({ index: i, doc_id: c.doc_id, chunk_idx: c.chunk_idx, title: c.title, snippet: c.snippet ?? null, score: c.score ?? null, source_uri: c.source_uri ?? undefined, used: true }));
   }, [messageRows]);
+
+  // Prefetch full chunk contents for citations to make modal instant
+  useEffect(() => {
+    const run = async () => {
+      if (!initialCitations || initialCitations.length === 0) return;
+      await Promise.all(initialCitations.map(async (c) => {
+        await qc.prefetchQuery<{ content: string; source_uri: string | null } | null>({
+          queryKey: ["kb-chunk", c.doc_id, c.chunk_idx],
+          queryFn: async () => {
+            const { data, error } = await supabase
+              .from("kb_chunks")
+              .select("content, source_uri")
+              .eq("doc_id", c.doc_id)
+              .eq("chunk_idx", c.chunk_idx)
+              .limit(1)
+              .maybeSingle<{ content: string; source_uri: string | null }>();
+            if (error) throw new Error(error.message);
+            return data ?? null;
+          },
+          staleTime: 5 * 60 * 1000,
+        });
+      }));
+    };
+    run();
+  }, [initialCitations, qc, supabase]);
 
   const createSessionMutation = useMutation<{ id: string }, Error, void>({
     mutationFn: async () => {

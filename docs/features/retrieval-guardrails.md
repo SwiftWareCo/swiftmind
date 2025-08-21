@@ -11,6 +11,7 @@
   - Calls retrieve({ k: 8, useRerank: false }).
   - If zero chunks, returns a conservative text: "I couldn't find relevant documents ..." with no citations.
   - Otherwise: synthesizes an answer with instructions to cite, returns { text, citations } where each citation includes doc_id, chunk_idx, title, source_uri, snippet, and raw score.
+  - Post-gating inclusion: ensure the single strongest keyword candidate is included if reasonably strong (k_norm ≥ 0.5) even if it would otherwise be filtered by floors. This guards ID-like queries without regex heuristics and keeps token usage bounded.
 - UI surface:
   - SourcesPanel shows a percentage (rounded from score×100) with a tooltip “Relative relevance among returned sources.”
   - Snippets are collapsed with expand/collapse; citations in the message scroll/highlight the source.
@@ -31,7 +32,7 @@ These changes aim to avoid weak citations and improve robustness without overfit
 2) Score floors (post-merge)
 - Combined score floor: score ≥ 0.45 to accept a source.
 - Vector floor: vectorNorm ≥ 0.15 unless keyword rank is very strong (top-1 keyword with ≥0.9 normalized). This avoids keyword-only weak matches.
-- Behavior: if no chunks pass floors → return the same conservative “no relevant docs” response (no citations).
+- Behavior: if no chunks pass floors → return the same conservative “no relevant docs” response (no citations). Separately, we include at most one strongest keyword candidate if k_norm ≥ 0.5 to handle exact-term questions.
 - Config: RETRIEVAL_SCORE_FLOOR=0.45, RETRIEVAL_VECTOR_FLOOR=0.15, RETRIEVAL_ALLOW_KEYWORD_TOP1_OVERRIDE=true.
 
 3) Opportunistic rerank

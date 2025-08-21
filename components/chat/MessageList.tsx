@@ -11,10 +11,10 @@ export type ChatMessage = {
   createdAt: number;
   displayName?: string | null;
   avatarUrl?: string | null;
-  citations?: { index: number; doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null }[];
+  citations?: { index: number; doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null; score?: number | null }[];
 };
 
-export function MessageList({ messages }: { messages: ChatMessage[] }) {
+export function MessageList({ messages, queryTerms = [] }: { messages: ChatMessage[]; queryTerms?: string[] }) {
   return (
     <div className="space-y-4">
       {messages.map((m) => (
@@ -39,8 +39,9 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
                   key={`${c.doc_id}_${c.chunk_idx}`}
                   citation={c}
                   index={c.index}
+                  highlightTerms={queryTerms}
                 >
-                  <button className="mr-2 align-super underline cursor-pointer">
+                  <button className="mr-2 align-super underline cursor-pointer hover:cursor-pointer hover:text-blue-500">
                     [{c.index + 1}]
                   </button>
                 </SourceDialog>

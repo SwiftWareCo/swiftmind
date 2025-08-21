@@ -27,15 +27,20 @@ export function ChatRoot({
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [citations, setCitations] = useState<CitationItem[]>(initialCitations);
+  const [lastQueryTerms, setLastQueryTerms] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   // Keeping local input state only; no regenerate feature
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
+  // Keep messages in sync with server-provided props
   useEffect(() => {
-    // Reset messages only when switching sessions
     setMessages(initialMessages);
+  }, [initialMessages]);
+
+  // Reset citations only when switching sessions
+  useEffect(() => {
     setCitations(initialCitations);
-  }, [sessionId, initialMessages, initialCitations]);
+  }, [sessionId]);
 
   const onSend = useCallback(async (text: string) => {
     setPending(true);
@@ -50,10 +55,17 @@ export function ChatRoot({
       }
       const json = await askForSession(sid, text);
       if (!json.ok) throw new Error(json.error);
+      // derive query terms for highlighting
+      const terms = text
+        .toLowerCase()
+        .split(/[^a-z0-9#]+/)
+        .filter(Boolean)
+        .filter((t) => !new Set(["the","a","an","and","or","but","of","to","in","on","for","with","is","it","this","that","hey","hi","hello","thanks"]).has(t));
+      setLastQueryTerms(terms);
       const idxMap = new Map<string, number>();
       const items: CitationItem[] = (json.citations || []).map((c, i) => {
         idxMap.set(`${c.doc_id}_${c.chunk_idx}`, i);
-        return { index: i, title: c.title, snippet: c.snippet || null, score: c.score ?? null, source_uri: c.source_uri || undefined };
+        return { index: i, doc_id: c.doc_id, chunk_idx: c.chunk_idx, title: c.title, snippet: c.snippet || null, score: c.score ?? null, source_uri: c.source_uri || undefined, used: true };
       });
       setCitations(items);
       // Don't add messages manually here - let TanStack Query refresh handle it
@@ -86,7 +98,7 @@ export function ChatRoot({
             <div className="grid grid-cols-1 md:grid-cols-[1fr] gap-4">
               <ScrollArea className="max-h-[70dvh] pr-2">
                 <div className="space-y-4 p-4">
-                  <MessageList messages={messages} />
+                  <MessageList messages={messages} queryTerms={lastQueryTerms} />
                   {pending && (
                     <div className=" rounded-xl border p-3 sm:p-4">
                       <div className=" flex items-center gap-2 text-xs text-muted-foreground">
@@ -111,7 +123,7 @@ export function ChatRoot({
       </div>
       <aside className="hidden md:block">
         <ScrollArea className="max-h-[70dvh]">
-          <SourcesPanel items={citations} />
+          <SourcesPanel items={citations} queryTerms={lastQueryTerms} />
         </ScrollArea>
       </aside>
     </div>
