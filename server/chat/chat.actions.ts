@@ -4,10 +4,11 @@ import "server-only";
 import { createClient } from "@/server/supabase/server";
 import type { TablesInsert } from "@/lib/types/database.types";
 import { retrieve } from "@/server/kb/retrieve";
+import { answerWithEmail } from "@/server/chat/emailOrchestrator";
 import { getActiveAssistantPrompt, getTenantRagSettings } from "@/server/settings/settings.data";
 import { getRecentMessagesForContext } from "@/server/chat/chat.data";
 
-type AskInput = { tenantId: string; question: string };
+type AskInput = { tenantId: string; question: string; tools?: { gmail?: boolean } };
 type AskResult = { ok: true; text: string; citations: { doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null; snippet?: string | null; score?: number | null }[] } | { ok: false; error: string };
 
 async function synthesizeAnswer(params: { tenantId: string; userRole: string | null; question: string; contextChunks: { title: string | null; content: string; source_uri?: string | null; doc_id: string; chunk_idx: number }[]; chatModel?: string; temperature?: number }): Promise<string> {
@@ -49,7 +50,7 @@ async function synthesizeAnswer(params: { tenantId: string; userRole: string | n
 }
 
 export async function askTenantAction(input: AskInput): Promise<AskResult> {
-  const { tenantId, question } = input;
+  const { tenantId, question, tools } = input;
   const q = (question || "").trim();
   if (!tenantId || !q) return { ok: false, error: "Missing input" };
 
@@ -68,10 +69,23 @@ export async function askTenantAction(input: AskInput): Promise<AskResult> {
       return { ok: true, text: "Ask a tenant-specific question (topic, doc, ID…) to get grounded answers with citations.", citations: [] };
     }
 
+    // Optional Gmail tool (explicitly toggled)
+    if (tools?.gmail === true) {
+      const emailRes = await answerWithEmail(tenantId, q, false);
+      if (emailRes.ok) {
+        return { ok: true, text: emailRes.text, citations: [] } as const;
+      }
+      // Return explicit errors to the user when tool is requested
+      if (emailRes.error) {
+        return { ok: true, text: emailRes.error, citations: [] } as const;
+      }
+    }
+
     // RAG controls per-tenant
     const rag = await getTenantRagSettings(tenantId);
     const k = rag?.retriever_top_k ?? 8;
     const useRerank = Boolean(rag?.rerank_enabled);
+
     const result = await retrieve({ tenantId, query: q, k, useRerank });
     // Thresholds
     const SCORE_FLOOR = Number(process.env.RETRIEVAL_SCORE_FLOOR || 0.45);
@@ -210,7 +224,7 @@ function buildDecontextualizedQuestion(question: string, history: { role: string
   return `${q}\n\nContext (recent turns):\n${context}`;
 }
 
-export type AskInSessionInput = { tenantId: string; sessionId: string; question: string };
+export type AskInSessionInput = { tenantId: string; sessionId: string; question: string; tools?: { gmail?: boolean } };
 export async function askInSessionAction(input: AskInSessionInput): Promise<AskResult & { saved: boolean }>{
   const { tenantId, sessionId, question } = input;
   const supabase = await createClient();
@@ -239,8 +253,11 @@ export async function askInSessionAction(input: AskInSessionInput): Promise<AskR
   const contentTokens = tokens.filter((t) => !stop.has(t));
   const useRewrite = contentTokens.length >= minTokens;
 
-  // Run retrieval and synthesize
-  const res = await askTenantAction({ tenantId, question: useRewrite ? rewritten : question });
+  // Run retrieval and synthesize (email orchestration included inside askTenantAction)
+  // IMPORTANT: Don't use rewritten context for Gmail/email tools as it pollutes the search query
+  const shouldUseOriginalQuestion = input.tools?.gmail === true;
+  const questionToUse = shouldUseOriginalQuestion ? question : (useRewrite ? rewritten : question);
+  const res = await askTenantAction({ tenantId, question: questionToUse, tools: input.tools });
   if (!res.ok) return { ...res, saved: false } as const;
 
   // Save assistant message with citations

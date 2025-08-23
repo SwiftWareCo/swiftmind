@@ -4,6 +4,7 @@ import { createClient } from "@/server/supabase/server";
 import { ChatRoot, type AskResult } from "@/components/chat/ChatRoot";
 import { askInSessionAction, createSessionAction } from "@/server/chat/chat.actions";
 import { ChatPageClient } from "@/components/chat/ChatPageClient";
+import { getGoogleIntegrationStatus } from "@/server/integrations/tokenManager";
 
 export default async function ChatPage() {
   const slug = await getTenantSlug();
@@ -24,6 +25,10 @@ export default async function ChatPage() {
     avatarUrl = data?.avatar_url ?? null;
   }
 
+  // Check Gmail integration status
+  const gmailStatus = await getGoogleIntegrationStatus(tenant.id);
+  const gmailAvailable = gmailStatus.status === "connected";
+
   async function createSession(): Promise<string> {
     "use server";
     const res = await createSessionAction({ tenantId: tenant.id });
@@ -31,14 +36,15 @@ export default async function ChatPage() {
     return res.id;
   }
 
-  async function ask(sessionId: string, question: string): Promise<AskResult> {
+  async function ask(sessionId: string, question: string, tools?: { gmail?: boolean }): Promise<AskResult> {
     "use server";
-    const res = await askInSessionAction({ tenantId: tenant.id, sessionId, question });
+    // tools flag is not persisted; only influences server-side orchestration for this ask
+    const res = await askInSessionAction({ tenantId: tenant.id, sessionId, question, tools });
     if (!res.ok) return res;
     return { ok: true, text: res.text, citations: res.citations };
   }
 
-  return <ChatPageClient tenantId={tenant.id} currentUser={{ displayName, avatarUrl }} ask={ask} />;
+  return <ChatPageClient tenantId={tenant.id} currentUser={{ displayName, avatarUrl }} ask={ask} gmailAvailable={gmailAvailable} />;
 }
 
 

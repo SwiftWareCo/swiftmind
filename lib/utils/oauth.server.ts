@@ -23,7 +23,7 @@ export async function codeChallengeS256(verifier: string): Promise<string> {
 export const GOOGLE_AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/gmail.readonly",
 ];
 
 

@@ -55,7 +55,6 @@ export function SourceDialog({ citation, index, highlightTerms = [], children }:
       toast.message("No further chunks", { description: "This document has no more adjacent chunks." });
       setCurrentIdx(lastGoodIdx.current);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.content, isLoading, isError, currentIdx]);
 
   // Highlight occurrences of query terms (case-insensitive)

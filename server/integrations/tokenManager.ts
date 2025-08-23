@@ -24,7 +24,7 @@ export type AccessTokenResult =
 
 export type IntegrationStatus =
   | { status: "not_connected" }
-  | { status: "connected"; updatedAt?: string }
+  | { status: "connected"; updatedAt?: string; emailAddress?: string }
   | { status: "needs_attention"; reason?: string; updatedAt?: string };
 
 async function fetchSecretRow(
@@ -208,7 +208,7 @@ export async function getGoogleAccessToken(tenantId: string): Promise<AccessToke
         // ignore and fall through
       }
     }
-    return { ok: false, error: refreshed.error, needsReconnect: refreshed.needsReconnect };
+    return { ok: false, error: refreshed.error as string, needsReconnect: refreshed.needsReconnect as boolean };
   }
 
   return { ok: true, accessToken: refreshed.access_token };
@@ -245,7 +245,20 @@ export async function getGoogleIntegrationStatus(tenantId: string): Promise<Inte
       // ignore audit read issues; default to connected
     }
 
-    return { status: "connected", updatedAt: secret.updated_at };
+    // Optionally fetch profile email for display
+    let emailAddress: string | undefined = undefined;
+    try {
+      const access = await getGoogleAccessToken(tenantId);
+      if (access.ok) {
+        const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${access.accessToken}` }, cache: "no-store" });
+        if (res.ok) {
+          const pj = (await res.json()) as { emailAddress?: string };
+          emailAddress = pj.emailAddress;
+        }
+      }
+    } catch {}
+
+    return { status: "connected", updatedAt: secret.updated_at, emailAddress };
   } catch {
     return { status: "needs_attention", reason: "decrypt_failed", updatedAt: secret.updated_at };
   }

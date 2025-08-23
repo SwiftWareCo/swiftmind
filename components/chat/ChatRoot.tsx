@@ -7,6 +7,7 @@ import { SourcesPanel, type CitationItem } from "@/components/chat/SourcesPanel"
 import { toast } from "sonner";
 import { TypingDots } from "@/components/chat/TypingDots";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { type SourceConfig } from "@/components/chat/SourceSelector";
 
 export type AskResult = { ok: true; text: string; citations: { doc_id: string; chunk_idx: number; title: string | null; source_uri?: string | null; snippet?: string | null; score?: number | null }[] } | { ok: false; error: string };
 
@@ -17,13 +18,15 @@ export function ChatRoot({
   askForSession,
   initialMessages = [],
   initialCitations = [],
+  gmailAvailable = false,
 }: {
   currentUser: { displayName: string | null; avatarUrl: string | null };
   sessionId: string | null;
   ensureSession: () => Promise<string>;
-  askForSession: (sessionId: string, question: string) => Promise<AskResult>;
+  askForSession: (sessionId: string, question: string, tools?: { gmail?: boolean }) => Promise<AskResult>;
   initialMessages?: ChatMessage[];
   initialCitations?: CitationItem[];
+  gmailAvailable?: boolean;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [citations, setCitations] = useState<CitationItem[]>(initialCitations);
@@ -40,9 +43,9 @@ export function ChatRoot({
   // Reset citations only when switching sessions
   useEffect(() => {
     setCitations(initialCitations);
-  }, [sessionId]);
+  }, [sessionId, initialCitations]);
 
-  const onSend = useCallback(async (text: string) => {
+  const onSend = useCallback(async (text: string, sources?: SourceConfig) => {
     setPending(true);
     try {
       const sid = sessionId || (await ensureSession());
@@ -53,7 +56,7 @@ export function ChatRoot({
           { id: crypto.randomUUID(), role: "user", text, createdAt: Date.now(), displayName: currentUser.displayName || "You", avatarUrl: currentUser.avatarUrl },
         ]);
       }
-      const json = await askForSession(sid, text);
+      const json = await askForSession(sid, text, { gmail: sources?.gmail || false });
       if (!json.ok) throw new Error(json.error);
       // derive query terms for highlighting
       const terms = text
@@ -90,8 +93,9 @@ export function ChatRoot({
         <div className="flex-1" role="log" aria-live="polite" aria-relevant="additions">
           {empty ? (
             <div className="flex h-full items-center justify-center">
-              <div className="text-center text-sm text-muted-foreground">
-                Ask a question to get started. Your answers will be grounded with citations.
+              <div className="text-center text-sm text-muted-foreground space-y-2">
+                <div>Ask a question to get started. Your answers will be grounded with citations.</div>
+                <div className="text-xs">Use the source selector in the composer to choose which sources to search.</div>
               </div>
             </div>
           ) : (
@@ -117,7 +121,7 @@ export function ChatRoot({
         {/* Fixed composer at viewport bottom */}
         <div className="fixed bottom-0 left-0 right-0 md:left-[240px] z-40 border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="container mx-auto max-w-8xl px-4 sm:px-6 md:px-8 py-2">
-            <ChatComposer onSend={onSend} isPending={pending} />
+            <ChatComposer onSend={onSend} isPending={pending} gmailAvailable={gmailAvailable} />
           </div>
         </div>
       </div>

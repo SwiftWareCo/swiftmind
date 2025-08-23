@@ -20,10 +20,11 @@ type Citation = { doc_id: string; chunk_idx: number; title: string | null; sourc
 type Props = {
   tenantId: string;
   currentUser: { displayName: string | null; avatarUrl: string | null };
-  ask: (sessionId: string, question: string) => Promise<AskResult>;
+  ask: (sessionId: string, question: string, tools?: { gmail?: boolean }) => Promise<AskResult>;
+  gmailAvailable?: boolean;
 };
 
-export function ChatPageClient({ tenantId, currentUser, ask }: Props) {
+export function ChatPageClient({ tenantId, currentUser, ask, gmailAvailable = false }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const qc = useQueryClient();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -146,8 +147,8 @@ export function ChatPageClient({ tenantId, currentUser, ask }: Props) {
   });
 
   const askForSession = useMemo(() => (
-    async (sid: string, q: string) => {
-      const result = await ask(sid, q);
+    async (sid: string, q: string, tools?: { gmail?: boolean }) => {
+      const result = await ask(sid, q, tools);
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["chat-sessions", tenantId] }),
         qc.invalidateQueries({ queryKey: ["chat-messages", sid] }),
@@ -184,6 +185,7 @@ export function ChatPageClient({ tenantId, currentUser, ask }: Props) {
         askForSession={askForSession}
         initialMessages={initialMessages}
         initialCitations={initialCitations}
+        gmailAvailable={gmailAvailable}
       />
     </div>
   );
