@@ -14,6 +14,76 @@ export type Database = {
   }
   public: {
     Tables: {
+      assistant_prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          notes: string | null
+          prompt: string
+          role_overrides: Json | null
+          tenant_id: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          notes?: string | null
+          prompt: string
+          role_overrides?: Json | null
+          tenant_id: string
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          notes?: string | null
+          prompt?: string
+          role_overrides?: Json | null
+          tenant_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_prompt_versions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assistant_prompts: {
+        Row: {
+          active_version: number
+          created_at: string
+          created_by: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          active_version?: number
+          created_at?: string
+          created_by?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          active_version?: number
+          created_at?: string
+          created_by?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_prompts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -352,33 +422,69 @@ export type Database = {
       }
       kb_ingest_jobs: {
         Row: {
+          allowed_roles: string[] | null
+          cancel_requested: boolean
           created_at: string
           doc_id: string | null
           error: string | null
+          filename: string | null
           id: string
+          metadata: Json | null
+          mime_type: string | null
+          notes: string | null
+          processed_bytes: number | null
+          processed_chunks: number | null
           source_id: string | null
           status: string
+          step: string | null
+          storage_path: string | null
           tenant_id: string
+          total_bytes: number | null
+          total_chunks: number | null
           updated_at: string
         }
         Insert: {
+          allowed_roles?: string[] | null
+          cancel_requested?: boolean
           created_at?: string
           doc_id?: string | null
           error?: string | null
+          filename?: string | null
           id?: string
+          metadata?: Json | null
+          mime_type?: string | null
+          notes?: string | null
+          processed_bytes?: number | null
+          processed_chunks?: number | null
           source_id?: string | null
           status?: string
+          step?: string | null
+          storage_path?: string | null
           tenant_id: string
+          total_bytes?: number | null
+          total_chunks?: number | null
           updated_at?: string
         }
         Update: {
+          allowed_roles?: string[] | null
+          cancel_requested?: boolean
           created_at?: string
           doc_id?: string | null
           error?: string | null
+          filename?: string | null
           id?: string
+          metadata?: Json | null
+          mime_type?: string | null
+          notes?: string | null
+          processed_bytes?: number | null
+          processed_chunks?: number | null
           source_id?: string | null
           status?: string
+          step?: string | null
+          storage_path?: string | null
           tenant_id?: string
+          total_bytes?: number | null
+          total_chunks?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -513,6 +619,7 @@ export type Database = {
           },
         ]
       }
+
       memberships: {
         Row: {
           created_at: string
@@ -692,6 +799,62 @@ export type Database = {
           },
         ]
       }
+      tenant_rag_settings: {
+        Row: {
+          chat_model: string
+          created_at: string
+          default_allowed_roles: string[]
+          embedding_model: string
+          hybrid_enabled: boolean
+          max_context_tokens: number
+          overfetch: number
+          rerank_enabled: boolean
+          retrieval_timeout_ms: number
+          retriever_top_k: number
+          temperature: number
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          chat_model?: string
+          created_at?: string
+          default_allowed_roles?: string[]
+          embedding_model?: string
+          hybrid_enabled?: boolean
+          max_context_tokens?: number
+          overfetch?: number
+          rerank_enabled?: boolean
+          retrieval_timeout_ms?: number
+          retriever_top_k?: number
+          temperature?: number
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          chat_model?: string
+          created_at?: string
+          default_allowed_roles?: string[]
+          embedding_model?: string
+          hybrid_enabled?: boolean
+          max_context_tokens?: number
+          overfetch?: number
+          rerank_enabled?: boolean
+          retrieval_timeout_ms?: number
+          retriever_top_k?: number
+          temperature?: number
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_rag_settings_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tenants: {
         Row: {
           created_at: string
@@ -742,6 +905,24 @@ export type Database = {
       }
     }
     Views: {
+      v_active_assistant_prompt: {
+        Row: {
+          prompt: string | null
+          role_overrides: Json | null
+          tenant_id: string | null
+          updated_at: string | null
+          version: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_prompts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_kb_chunks_visible: {
         Row: {
           allowed_roles: string[] | null
@@ -899,6 +1080,10 @@ export type Database = {
           role_key: string
           user_id: string
         }[]
+      }
+      set_active_prompt_version: {
+        Args: { t: string; v: number }
+        Returns: undefined
       }
       sparsevec_out: {
         Args: { "": unknown }

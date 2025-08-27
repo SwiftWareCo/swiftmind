@@ -17,7 +17,7 @@ export type CitationItem = {
 export function SourcesPanel({ items, queryTerms = [] }: { items: CitationItem[]; queryTerms?: string[] }) {
   const [open, setOpen] = useState(true);
   return (
-    <div className="md:sticky md:top-16">
+    <div className="md:sticky md:top-16 md:max-h-[calc(100vh-5rem)]">
       <div className="mb-2 flex items-center justify-between md:hidden">
         <button
           className="text-sm underline"
@@ -28,9 +28,11 @@ export function SourcesPanel({ items, queryTerms = [] }: { items: CitationItem[]
         </button>
       </div>
       <div className={open ? "block" : "hidden md:block"}>
-        <div className="rounded-xl border p-3">
-          <div className="mb-2 text-sm font-medium">Sources</div>
-          <div className="space-y-3">
+        <div className="rounded-xl border p-3 md:max-h-[calc(100vh-8rem)] md:flex md:flex-col">
+          <div className="mb-2 text-sm font-medium flex-shrink-0">
+            Sources {items.length > 0 && <span className="text-muted-foreground">({items.length})</span>}
+          </div>
+          <div className="space-y-3 md:overflow-y-auto md:flex-1 md:min-h-0 md:pr-2 scrollbar-thin">
             {items.length === 0 && <div className="text-sm text-muted-foreground">No sources</div>}
             {items.map((it) => (
               <div key={it.index} id={`src-${it.index + 1}`} className="rounded-md border p-2 scroll-mt-4">

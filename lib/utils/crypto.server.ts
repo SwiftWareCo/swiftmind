@@ -1,4 +1,3 @@
-"use server";
 
 import "server-only";
 import crypto from "node:crypto";
@@ -9,6 +8,10 @@ export type EncryptedPayload = {
   keyVersion: "v1";
 };
 
+export function hashContent(content: string): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
 function getKeyV1(): Buffer {
   const base64 = process.env.INTEGRATION_KEY_V1_BASE64;
   if (!base64) {
@@ -17,7 +20,7 @@ function getKeyV1(): Buffer {
   let key: Buffer;
   try {
     key = Buffer.from(base64, "base64");
-  } catch (e) {
+  } catch (e: unknown) {
     throw new Error("Invalid INTEGRATION_KEY_V1_BASE64: base64 decode failed");
   }
   if (key.length !== 32) {

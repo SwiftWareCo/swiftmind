@@ -27,7 +27,8 @@ export function SidebarNavClient({ isAdmin }: { isAdmin: boolean }) {
       <div className="px-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Main</div>
       <NavItem href="/dashboard" label="Dashboard" active={isActive("/dashboard")} />
       <NavItem href="/chat" label="Chat" active={isActive("/chat")} />
-      <NavItem href="/knowledge" label="Knowledge" active={isActive("/knowledge")} />
+      <NavItem href="/knowledge" label="Upload Documents" active={pathname === "/knowledge"} />
+      <NavItem href="/knowledge/browse" label="Browse Knowledge" active={isActive("/knowledge/browse")} />
       <NavItem href="/connections" label="Connections" active={isActive("/connections")} />
 
       {isAdmin && (

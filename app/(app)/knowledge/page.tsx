@@ -1,11 +1,10 @@
-import { Suspense } from "react";
 import { getTenantSlug } from "@/lib/utils/tenant";
 import { getTenantBySlug } from "@/server/tenants/tenants.data";
 import { hasPermission } from "@/server/kb/kb.data";
-import { UploadForm } from "./upload-form";
-import { KnowledgeTable } from "@/components/knowledge/KnowledgeTable";
-import { SearchPreview } from "@/components/knowledge/SearchPreview";
-import { Card, CardContent } from "@/components/ui/card";
+import { UnifiedUploadComponent } from "@/components/knowledge/UnifiedUploadComponent";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Search } from "lucide-react";
 
 export default async function KnowledgePage() {
   const slug = await getTenantSlug();
@@ -14,28 +13,43 @@ export default async function KnowledgePage() {
 
   const canWrite = await hasPermission(tenant.id, "kb.write");
 
-  return (
-    <div className="container mx-auto">
-      <h1 className="text-2xl font-semibold">{tenant.name} Knowledge</h1>
-      <p className="text-muted-foreground">Upload docs or verify what’s searchable.</p>
-
-      <Card className="mt-4">
-        <CardContent className="py-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <SearchPreview tenantId={tenant.id} />
-            {canWrite ? <UploadForm tenantId={tenant.id} embedded /> : null}
-          </div>
-        </CardContent>
-      </Card>
-
-      <section className="mt-6">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-lg font-medium">Documents</h2>
+  if (!canWrite) {
+    return (
+      <div className="container mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Upload Documents</h1>
+          <p className="text-muted-foreground">{`You don't have permission to upload documents.`}</p>
         </div>
-        <Suspense fallback={<div>Loading documents…</div>}>
-          <KnowledgeTable tenantId={tenant.id} canWrite={canWrite} />
-        </Suspense>
-      </section>
+        
+        <div className="flex justify-center">
+          <Link href="/knowledge/browse">
+            <Button variant="outline" className="flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Browse Existing Documents
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Upload Documents</h1>
+          <p className="text-muted-foreground">Add documents to your knowledge base.</p>
+        </div>
+        
+        <Link href="/knowledge/browse">
+          <Button variant="outline" className="flex items-center gap-2">
+            <Search className="h-4 w-4" />
+            Browse Documents
+          </Button>
+        </Link>
+      </div>
+
+      <UnifiedUploadComponent tenantId={tenant.id} />
     </div>
   );
 }

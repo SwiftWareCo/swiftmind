@@ -12,16 +12,20 @@ export const kbSourcesKeys = {
 
 export const kbJobsKeys = {
   recent: (tenantId: string) => ["kb-jobs", tenantId, "recent"] as const,
+  single: (jobId: string) => ["kb-job", jobId] as const,
+  errors: (tenantId: string) => ["kb-jobs", tenantId, "errors"] as const,
 } as const;
+
+// Removed batch keys since we no longer use batches
 
 type DocItem = Pick<
   Tables<"kb_docs">,
   "id" | "title" | "status" | "error" | "created_at" | "content_hash" | "version" | "source_id" | "uri"
 >;
 type JobItem = { doc_id: string; status: string; error: string | null; updated_at: string };
-type ChunkItem = { doc_id: string };
+type ChunkItem = { doc_id: string; allowed_roles: string[] | null };
 
-export type KbDocsRow = DocItem & { chunkCount: number; latestJob: JobItem | null };
+export type KbDocsRow = DocItem & { chunkCount: number; latestJob: JobItem | null; allowedRoles: string[] };
 
 type SourceItem = Pick<
   Tables<"kb_sources">,
@@ -55,6 +59,7 @@ export function createKbDocsQueryOptions(
           .from("kb_docs")
           .select("id, title, status, error, created_at, content_hash, version, source_id, uri")
           .eq("tenant_id", tenantId)
+          .eq("status", "ready") // Only show successfully processed documents
           .order("created_at", { ascending: false }),
         supabase
           .from("kb_ingest_jobs")
@@ -82,6 +87,7 @@ export function createKbDocsQueryOptions(
         ...d,
         chunkCount: chunkCountByDoc.get(d.id) || 0,
         latestJob: latestJobByDoc.get(d.id) || null,
+        allowedRoles: [], // This query doesn't fetch chunk roles
       }));
       const hasPending = rows.some((r) => r.status !== "ready");
       return { rows, hasPending };
@@ -111,6 +117,7 @@ export function createKbDocsPageQueryOptions(
         .from("kb_docs")
         .select("id, title, status, error, created_at, content_hash, version, source_id, uri", { count: "exact" })
         .eq("tenant_id", tenantId)
+        .eq("status", "ready") // Only show successfully processed documents
         .order("created_at", { ascending: false })
         .range(from, to);
 
@@ -132,7 +139,7 @@ export function createKbDocsPageQueryOptions(
         docIds.length
           ? supabase
               .from("kb_chunks")
-              .select("doc_id")
+              .select("doc_id, allowed_roles")
               .eq("tenant_id", tenantId)
               .in("doc_id", docIds)
           : Promise.resolve({ data: [] as ChunkItem[], error: null } as { data: ChunkItem[]; error: null }),
@@ -144,7 +151,19 @@ export function createKbDocsPageQueryOptions(
       const chunks = (chunksRes.data || []) as ChunkItem[];
 
       const chunkCountByDoc = new Map<string, number>();
-      for (const c of chunks) chunkCountByDoc.set(c.doc_id, (chunkCountByDoc.get(c.doc_id) || 0) + 1);
+      const allowedRolesByDoc = new Map<string, Set<string>>();
+      
+      for (const c of chunks) {
+        chunkCountByDoc.set(c.doc_id, (chunkCountByDoc.get(c.doc_id) || 0) + 1);
+        
+        // Aggregate unique roles for each document
+        if (!allowedRolesByDoc.has(c.doc_id)) {
+          allowedRolesByDoc.set(c.doc_id, new Set<string>());
+        }
+        if (c.allowed_roles) {
+          c.allowed_roles.forEach(role => allowedRolesByDoc.get(c.doc_id)?.add(role));
+        }
+      }
 
       const latestJobByDoc = new Map<string, JobItem>();
       for (const j of jobs) if (!latestJobByDoc.has(j.doc_id)) latestJobByDoc.set(j.doc_id, j);
@@ -153,6 +172,7 @@ export function createKbDocsPageQueryOptions(
         ...d,
         chunkCount: chunkCountByDoc.get(d.id) || 0,
         latestJob: latestJobByDoc.get(d.id) || null,
+        allowedRoles: Array.from(allowedRolesByDoc.get(d.id) || []),
       }));
       const hasPending = rows.some((r) => r.status !== "ready");
       return { rows, total, page, pageSize, hasPending };
@@ -311,6 +331,98 @@ export function createKbJobsRecentQueryOptions(
     },
     refetchInterval: (q) => (q.state.data?.hasActive ? 5000 : false),
     staleTime: 2000,
+  };
+}
+
+// Single file upload query option (simplified)
+export type JobProgressData = {
+  jobId: string;
+  status: string;
+  step: string;
+  progress: number;
+  processedBytes?: number;
+  totalBytes?: number;
+  processedChunks?: number;
+  totalChunks?: number;
+  error?: string;
+  notes?: string;
+};
+
+export function createJobProgressQueryOptions(
+  jobId: string,
+): UseQueryOptions<
+  JobProgressData,
+  Error,
+  JobProgressData,
+  ReturnType<typeof kbJobsKeys.single>
+> {
+  return {
+    queryKey: kbJobsKeys.single(jobId),
+    queryFn: async () => {
+      // Call the server action to get job progress
+      const { getJobProgress } = await import('@/server/kb/kb.actions');
+      const result = await getJobProgress(jobId);
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to get job progress');
+      }
+      
+      return result.data;
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      
+      // Continue polling if job is still processing
+      if (data.status === 'processing' || data.status === 'pending') {
+        return 2000; // Poll every 2 seconds
+      }
+      
+      return false; // Stop polling when done/error/canceled
+    },
+    staleTime: 1000,
+    enabled: !!jobId,
+  };
+}
+
+// Query for error jobs (for persistent error display in upload queue)
+export type ErrorJobData = {
+  id: string;
+  filename: string | null;
+  error: string | null;
+  created_at: string;
+  mime_type: string | null;
+  total_bytes: number | null;
+};
+
+export function createErrorJobsQueryOptions(
+  tenantId: string,
+  supabase: SupabaseClient,
+): UseQueryOptions<
+  ErrorJobData[],
+  Error,
+  ErrorJobData[],
+  ReturnType<typeof kbJobsKeys.errors>
+> {
+  return {
+    queryKey: kbJobsKeys.errors(tenantId),
+    queryFn: async () => {
+      const result = await supabase
+        .from("kb_ingest_jobs")
+        .select("id, filename, error, created_at, mime_type, total_bytes")
+        .eq("tenant_id", tenantId)
+        .eq("status", "error")
+        .order("created_at", { ascending: false })
+        .limit(20); // Only show recent errors
+      
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+      
+      return (result.data || []) as ErrorJobData[];
+    },
+    staleTime: 30000, // Cache for 30 seconds
+    refetchInterval: false, // Don't auto-refetch errors
   };
 }
 

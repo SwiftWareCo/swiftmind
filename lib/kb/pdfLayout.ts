@@ -1,4 +1,4 @@
-import "server-only";
+'use server'
 
 export type BBox = { x: number; y: number; w: number; h: number };
 export type PdfToken = { text: string; page: number; x: number; y: number; w: number; h: number; fontSize: number };
@@ -221,48 +221,98 @@ type PdfGetDocumentArg =
 type PdfjsModule = { getDocument: (src: PdfGetDocumentArg) => { promise: Promise<PdfDocument> } };
 
 export async function extractPdfTokens(buffer: Buffer): Promise<{ tokens: PdfToken[]; pageCount: number }> {
-  // Simple and robust SSR pattern: polyfill Promises with resolvers, import worker module, then main module
-  await import("@ungap/with-resolvers");
-  await import("pdfjs-dist/build/pdf.worker.min.mjs");
-  const mod = (await import("pdfjs-dist/build/pdf.mjs")) as unknown as PdfjsModule & { setVerbosityLevel?: (v: number) => void; VerbosityLevel?: { ERROR: number } };
-  if (typeof mod.setVerbosityLevel === "function" && mod.VerbosityLevel && typeof mod.VerbosityLevel.ERROR === "number") {
-    mod.setVerbosityLevel(mod.VerbosityLevel.ERROR);
-  }
-  const data = new Uint8Array(buffer);
-  const STANDARD_FONTS_URL = process.env.PDFJS_STANDARD_FONTS_URL || "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.54/standard_fonts/";
-  const loadingTask = mod.getDocument({ data, standardFontDataUrl: STANDARD_FONTS_URL });
-  const doc = await loadingTask.promise;
-  const pageCount: number = doc.numPages as number;
-  const tokens: PdfToken[] = [];
-  for (let p = 1; p <= pageCount; p++) {
-    const page = await doc.getPage(p);
-    const content = await page.getTextContent();
-    for (const item of content.items as PdfTextItem[]) {
-      const str = (item.str || "").replace(/\u0000/g, "");
-      if (!str) continue;
-      const m = item.transform || [1, 0, 0, 1, 0, 0];
-      const a = m[0];
-      const d = m[3];
-      const e = m[4];
-      const f = m[5];
-      const fontSize = Math.max(1, Math.abs(d));
-      const w = typeof item.width === "number" ? item.width : Math.abs(a) * str.length * (fontSize * 0.5) * 0.01;
-      const h = typeof item.height === "number" ? item.height : fontSize;
-      tokens.push({ text: str, page: p, x: e, y: f, w, h, fontSize });
+  console.log(`📄 extractPdfTokens: Starting token extraction, buffer size: ${buffer.length} bytes`);
+  
+  try {
+    // Simple and robust SSR pattern: polyfill Promises with resolvers, import worker module, then main module
+    console.log(`📄 extractPdfTokens: Importing @ungap/with-resolvers`);
+    await import("@ungap/with-resolvers");
+    
+    console.log(`📄 extractPdfTokens: Importing PDF.js worker module (legacy)`);
+    await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs");
+    
+    console.log(`📄 extractPdfTokens: Importing PDF.js main module (legacy)`);
+    const mod = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as PdfjsModule & { setVerbosityLevel?: (v: number) => void; VerbosityLevel?: { ERROR: number } };
+    
+    console.log(`📄 extractPdfTokens: Setting PDF.js verbosity level`);
+    if (typeof mod.setVerbosityLevel === "function" && mod.VerbosityLevel && typeof mod.VerbosityLevel.ERROR === "number") {
+      mod.setVerbosityLevel(mod.VerbosityLevel.ERROR);
     }
+    
+    console.log(`📄 extractPdfTokens: Creating document loading task`);
+    const data = new Uint8Array(buffer);
+    const STANDARD_FONTS_URL = process.env.PDFJS_STANDARD_FONTS_URL || "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.54/standard_fonts/";
+    const loadingTask = mod.getDocument({ data, standardFontDataUrl: STANDARD_FONTS_URL });
+    
+    console.log(`📄 extractPdfTokens: Loading PDF document`);
+    const doc = await loadingTask.promise;
+    const pageCount: number = doc.numPages as number;
+    console.log(`📄 extractPdfTokens: Document loaded with ${pageCount} pages`);
+    
+    const tokens: PdfToken[] = [];
+    console.log(`📄 extractPdfTokens: Starting page processing`);
+    
+    for (let p = 1; p <= pageCount; p++) {
+      console.log(`📄 extractPdfTokens: Processing page ${p}/${pageCount}`);
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      
+      for (const item of content.items as PdfTextItem[]) {
+        const str = (item.str || "").replace(/\u0000/g, "");
+        if (!str) continue;
+        const m = item.transform || [1, 0, 0, 1, 0, 0];
+        const a = m[0];
+        const d = m[3];
+        const e = m[4];
+        const f = m[5];
+        const fontSize = Math.max(1, Math.abs(d));
+        const w = typeof item.width === "number" ? item.width : Math.abs(a) * str.length * (fontSize * 0.5) * 0.01;
+        const h = typeof item.height === "number" ? item.height : fontSize;
+        tokens.push({ text: str, page: p, x: e, y: f, w, h, fontSize });
+      }
+    }
+    
+    console.log(`✅ extractPdfTokens: Successfully extracted ${tokens.length} tokens from ${pageCount} pages`);
+    return { tokens, pageCount };
+  } catch (error) {
+    console.error(`❌ extractPdfTokens: PDF token extraction failed:`, error);
+    console.error(`❌ extractPdfTokens: Error details:`, {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
+    throw error;
   }
-  return { tokens, pageCount };
 }
 
 export async function extractPdfLayout(buffer: Buffer): Promise<{ lines: PdfLine[]; text: string; pageCount: number; kv_candidates: KvCandidate[] }> {
-  const { tokens, pageCount } = await extractPdfTokens(buffer);
-  const lines = groupTokensIntoLines(tokens);
-  const kv_candidates = detectKvCandidates(lines);
-  const text = lines.map((l) => l.text).join("\n");
-  return { lines, text, pageCount, kv_candidates };
+  console.log(`📄 extractPdfLayout: Starting PDF layout extraction, buffer size: ${buffer.length} bytes`);
+  
+  try {
+    console.log(`📄 extractPdfLayout: About to extract PDF tokens`);
+    const { tokens, pageCount } = await extractPdfTokens(buffer);
+    console.log(`📄 extractPdfLayout: Extracted ${tokens.length} tokens from ${pageCount} pages`);
+    
+    console.log(`📄 extractPdfLayout: About to group tokens into lines`);
+    const lines = groupTokensIntoLines(tokens);
+    console.log(`📄 extractPdfLayout: Grouped into ${lines.length} lines`);
+    
+    console.log(`📄 extractPdfLayout: About to detect KV candidates`);
+    const kv_candidates = detectKvCandidates(lines);
+    console.log(`📄 extractPdfLayout: Detected ${kv_candidates.length} KV candidates`);
+    
+    const text = lines.map((l) => l.text).join("\n");
+    console.log(`✅ extractPdfLayout: Successfully completed, text length: ${text.length} chars`);
+    
+    return { lines, text, pageCount, kv_candidates };
+  } catch (error) {
+    console.error(`❌ extractPdfLayout: Failed to extract PDF layout:`, error);
+    console.error(`❌ extractPdfLayout: Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+    throw error;
+  }
 }
 
-export function chunkLinesToLayoutChunks(lines: PdfLine[], kvAll: KvCandidate[], targetTokens: number): LayoutChunk[] {
+export async function chunkLinesToLayoutChunks(lines: PdfLine[], kvAll: KvCandidate[], targetTokens: number): Promise<LayoutChunk[]> {
   const chunks: LayoutChunk[] = [];
   const AVG_CHARS_PER_TOKEN = 4;
   const maxChars = targetTokens * AVG_CHARS_PER_TOKEN;

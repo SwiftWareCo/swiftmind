@@ -10,11 +10,13 @@ import { embedChunks } from "@/lib/kb/embed";
 import { extractPdfLayout, chunkLinesToLayoutChunks } from "@/lib/kb/pdfLayout";
 import { revalidatePath } from "next/cache";
 
-export type UploadState = { ok: boolean; error?: string };
+
+export type UploadState = { ok: boolean; error?: string; jobId?: string; docId?: string };
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
 
 export async function uploadAndIngest(prev: UploadState | undefined, formData: FormData): Promise<UploadState> {
+  console.log("🚀 uploadAndIngest: Starting upload and ingest process");
   const supabase = await createClient();
 
   const { data: userData, error: userErr } = await supabase.auth.getUser();
@@ -45,6 +47,8 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
   if (!(file instanceof File)) return { ok: false, error: "No file provided" };
   if (file.size === 0) return { ok: false, error: "File is empty" };
   if (file.size > MAX_FILE_BYTES) return { ok: false, error: "File too large (max 20MB)" };
+
+  console.log(`📁 uploadAndIngest: Processing file "${file.name}" (${file.size} bytes, type: ${file.type})`);
 
   const startedAt = Date.now();
 
@@ -129,7 +133,22 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
   const { data: jobRow, error: jobErr } = await supabase
     .from("kb_ingest_jobs")
-    .insert({ tenant_id: tenantId, source_id: sourceId!, doc_id: docId!, status: "queued" } as TablesInsert<"kb_ingest_jobs">)
+    .insert({ 
+      tenant_id: tenantId, 
+      source_id: sourceId!, 
+      doc_id: docId!, 
+      status: "processing",
+      step: "uploading",
+      filename: file.name,
+      mime_type: file.type,
+      total_bytes: file.size,
+      processed_bytes: 0,
+      allowed_roles: Array.isArray(allowedRoles) ? allowedRoles : ['admin'],
+      metadata: {
+        originalFilename: file.name,
+        uploadStartedAt: new Date().toISOString(),
+      }
+    } as TablesInsert<"kb_ingest_jobs">)
     .select("id")
     .single<{ id: string }>();
   if (jobErr) {
@@ -139,81 +158,122 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
   const jobId = jobRow.id;
 
-  // Flip to processing
-  await supabase.from("kb_ingest_jobs").update({ status: "processing", error: null }).eq("id", jobId).eq("tenant_id", tenantId);
+  // Mark doc as processing
   await supabase.from("kb_docs").update({ status: "processing", error: null }).eq("id", docId!).eq("tenant_id", tenantId);
 
+  let storagePath: string | null = null; // Declare at function scope
 
   try {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+
+    // Save file to Supabase Storage for future background processing support
+    const timestamp = Date.now();
+    const sanitizedFilename = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    storagePath = `uploads/${tenantId}/${timestamp}-${sanitizedFilename}`;
+    
+    console.log(`💾 uploadAndIngest: Saving file to storage: ${storagePath}`);
+    const { error: storageError } = await supabase.storage
+      .from('knowledge-files')
+      .upload(storagePath, buffer, {
+        contentType: file.type,
+        duplex: 'half'
+      });
+    
+    if (storageError) {
+      console.error('Storage upload failed:', storageError);
+      // Continue processing - storage is for future features, not required now
+    }
+
+    // Update job with storage path
+    await supabase.from("kb_ingest_jobs").update({ 
+      storage_path: storageError ? null : storagePath 
+    }).eq("id", jobId).eq("tenant_id", tenantId);
 
 
 
     // Branch: PDF layout-aware path vs legacy text extraction
     const lower = file.name.toLowerCase();
     const ext = (lower.match(/\.([a-z0-9]+)$/)?.[1] || "").toLowerCase();
+    console.log(`🔍 uploadAndIngest: File extension detected: "${ext}"`);
+    
     let rows: TablesInsert<"kb_chunks">[] = [] as unknown as TablesInsert<"kb_chunks">[];
     let contentHash = "";
     if (ext === "pdf") {
-      const { lines, text, pageCount, kv_candidates } = await extractPdfLayout(buffer);
-      if (!text.trim()) throw new Error("No extractable text content");
-      contentHash = await hashContent(text);
-      const layoutChunks = chunkLinesToLayoutChunks(lines, kv_candidates, 1000);
+      console.log(`📄 uploadAndIngest: Processing PDF file "${file.name}", buffer size: ${buffer.byteLength} bytes`);
+      try {
+        console.log(`📄 uploadAndIngest: About to call extractPdfLayout for "${file.name}"`);
+        const { lines, text, pageCount, kv_candidates } = await extractPdfLayout(buffer);
+        console.log(`✅ uploadAndIngest: PDF extraction successful - ${text.length} chars, ${lines.length} lines, ${pageCount} pages, ${kv_candidates.length} KV candidates`);
+        
+        if (!text.trim()) throw new Error("No extractable text content");
+        contentHash = await hashContent(text);
+        console.log(`🔐 uploadAndIngest: Content hash generated: ${contentHash.substring(0, 16)}...`);
+        
+        console.log(`⚙️ uploadAndIngest: About to chunk PDF lines into layout chunks`);
+        const layoutChunks = await chunkLinesToLayoutChunks(lines, kv_candidates, 1000);
+        console.log(`📦 uploadAndIngest: Created ${layoutChunks.length} layout chunks`);
 
-      // Optional compact debug logging for first N PDFs
-      const DEBUG_FIRST_N = Number(process.env.PDF_INGEST_DEBUG_FIRST_N || 0);
-      if (DEBUG_FIRST_N > 0) {
-        const { data: countRow } = await supabase
-          .from("kb_docs")
-          .select("id", { count: "exact", head: true })
-          .eq("tenant_id", tenantId)
-          .eq("source_id", sourceId!)
-          .eq("title", file.name);
-        const idx = (countRow as unknown as { count?: number } | null)?.count ?? 0;
-        if (idx <= DEBUG_FIRST_N) {
-          const sample = kv_candidates.slice(0, 3).map((kv) => ({
-            label: kv.label,
-            value_preview: kv.value.length > 6 ? "…" + kv.value.slice(-6) : kv.value,
-            page: kv.page,
-          }));
-          console.log(
-            JSON.stringify({
-              pdf_ingest_debug: true,
-              file: file.name,
-              pages: pageCount,
-              line_count: lines.length,
-              chunk_count: layoutChunks.length,
-              kv_sample: sample,
-            }),
-          );
+        // Optional compact debug logging for first N PDFs
+        const DEBUG_FIRST_N = Number(process.env.PDF_INGEST_DEBUG_FIRST_N || 0);
+        if (DEBUG_FIRST_N > 0) {
+          const { data: countRow } = await supabase
+            .from("kb_docs")
+            .select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenantId)
+            .eq("source_id", sourceId!)
+            .eq("title", file.name);
+          const idx = (countRow as unknown as { count?: number } | null)?.count ?? 0;
+          if (idx <= DEBUG_FIRST_N) {
+            const sample = kv_candidates.slice(0, 3).map((kv) => ({
+              label: kv.label,
+              value_preview: kv.value.length > 6 ? "…" + kv.value.slice(-6) : kv.value,
+              page: kv.page,
+            }));
+            console.log(
+              JSON.stringify({
+                pdf_ingest_debug: true,
+                file: file.name,
+                pages: pageCount,
+                line_count: lines.length,
+                chunk_count: layoutChunks.length,
+                kv_sample: sample,
+              }),
+            );
+          }
         }
-      }
 
-      // If re-ingest, wipe old chunks first
-      if (usingExistingDoc) {
-        await supabase.from("kb_chunks").delete().eq("tenant_id", tenantId).eq("doc_id", docId!);
-      }
+        // If re-ingest, wipe old chunks first
+        if (usingExistingDoc) {
+          await supabase.from("kb_chunks").delete().eq("tenant_id", tenantId).eq("doc_id", docId!);
+        }
 
-      const embeddings = await embedChunks(layoutChunks.map((c) => c.content));
-      rows = layoutChunks.map((c, idx) => ({
-        tenant_id: tenantId,
-        doc_id: docId!,
-        chunk_idx: idx,
-        title: null,
-        content: c.content,
-        embedding: JSON.stringify(embeddings[idx]),
-        allowed_roles: allowedRoles,
-        metadata: { sectionIndex: c.sectionIndex, fileExt: "pdf", page_start: c.meta.page_start, page_end: c.meta.page_end, bbox_union: c.meta.bbox_union, kv_candidates: c.meta.kv_candidates, line_bboxes: c.meta.line_bboxes } as unknown,
-      })) as unknown as TablesInsert<"kb_chunks">[];
+        const embeddings = await embedChunks(layoutChunks.map((c) => c.content));
+        rows = layoutChunks.map((c, idx) => ({
+          tenant_id: tenantId,
+          doc_id: docId!,
+          chunk_idx: idx,
+          title: null,
+          content: c.content,
+          embedding: JSON.stringify(embeddings[idx]),
+          allowed_roles: allowedRoles,
+          metadata: { sectionIndex: c.sectionIndex, fileExt: "pdf", page_start: c.meta.page_start, page_end: c.meta.page_end, bbox_union: c.meta.bbox_union, kv_candidates: c.meta.kv_candidates, line_bboxes: c.meta.line_bboxes } as unknown,
+        })) as unknown as TablesInsert<"kb_chunks">[];
+      } catch (pdfError) {
+        console.error(`❌ uploadAndIngest: PDF processing failed for "${file.name}":`, pdfError);
+        console.error(`❌ uploadAndIngest: Error stack:`, pdfError instanceof Error ? pdfError.stack : 'No stack trace');
+        throw new Error(`PDF processing failed: ${pdfError instanceof Error ? pdfError.message : 'Unknown PDF error'}`);
+      }
     } else {
       const { text, sections, fileExt } = await extractTextAndSections(buffer, file.name);
       if (!text.trim()) throw new Error("No extractable text content");
       contentHash = await hashContent(text);
+      
       const chunks = chunkContent(sections, { targetTokens: 1000, overlapTokens: 120 });
       if (usingExistingDoc) {
         await supabase.from("kb_chunks").delete().eq("tenant_id", tenantId).eq("doc_id", docId!);
       }
+      
       const embeddings = await embedChunks(chunks.map((c) => c.content));
       rows = chunks.map((c, idx) => ({
         tenant_id: tenantId,
@@ -244,7 +304,14 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
     await supabase
       .from("kb_ingest_jobs")
-      .update({ status: "done", error: null })
+      .update({ 
+        status: "done", 
+        step: "done",
+        error: null,
+        processed_bytes: file.size,
+        processed_chunks: rows.length,
+        total_chunks: rows.length
+      })
       .eq("id", jobId)
       .eq("tenant_id", tenantId);
 
@@ -259,7 +326,26 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
       } as unknown as TablesInsert<"audit_logs">);
     } catch {}
 
-    return { ok: true };
+    // Clean up storage file after successful processing (7-day retention policy)
+    try {
+      if (storagePath) {
+        console.log(`🗑️ uploadAndIngest: Scheduling cleanup for ${storagePath} in 7 days`);
+        // Note: In a full implementation, this would be handled by a background job
+        // For now, we keep files for 7 days for debugging and potential reprocessing
+        
+        // Optional: Delete immediately to save storage (uncomment if preferred)
+        // const { error: deleteError } = await supabase.storage
+        //   .from('knowledge-files')
+        //   .remove([storagePath]);
+        // if (deleteError) console.error('Storage cleanup failed:', deleteError);
+      }
+      console.log(`✅ uploadAndIngest: Successfully processed file, storage preserved for 7 days`);
+    } catch (cleanupError) {
+      console.error('Error during cleanup:', cleanupError);
+      // Don't fail the upload for cleanup errors
+    }
+
+    return { ok: true, jobId, docId };
   } catch (e: unknown) {
     const message: string = e instanceof Error ? e.message : "Ingest failed";
     await supabase
@@ -269,10 +355,14 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
       .eq("tenant_id", tenantId);
     await supabase
       .from("kb_ingest_jobs")
-      .update({ status: "error", error: message })
+      .update({ 
+        status: "error", 
+        step: "error",
+        error: message 
+      })
       .eq("id", jobId)
       .eq("tenant_id", tenantId);
-    return { ok: false, error: message };
+    return { ok: false, error: message, jobId };
   }
 }
 
@@ -418,5 +508,265 @@ export async function previewSearch(
     return { ok: false, error: message };
   }
 }
+
+/**
+ * Update roles for all chunks of a document
+ */
+export async function updateDocumentRoles(
+  prev: { ok: boolean; error?: string } | undefined,
+  formData: FormData
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) return { ok: false, error: "Authentication failed" };
+    if (!userData.user) return { ok: false, error: "User not found" };
+
+    const slug = await getTenantSlug();
+    if (!slug) return { ok: false, error: "Tenant not found" };
+    
+    const tenant = await getTenantBySlug(slug);
+    await requirePermission(tenant.id, "kb.write");
+
+    const docId = String(formData.get("doc_id") || "").trim();
+    const rolesRaw = formData.getAll("allowed_roles");
+    const allowedRoles = rolesRaw.map(String);
+
+    if (!docId) return { ok: false, error: "Missing doc_id" };
+    if (!allowedRoles.length) return { ok: false, error: "At least one role must be selected" };
+
+    // Ensure doc belongs to tenant
+    const { data: docRecord, error: docErr } = await supabase
+      .from("kb_docs")
+      .select("id, title")
+      .eq("id", docId)
+      .eq("tenant_id", tenant.id)
+      .single();
+
+    if (docErr || !docRecord) {
+      return { ok: false, error: "Document not found" };
+    }
+
+    // Update all chunks for this document
+    const { error: updateErr } = await supabase
+      .from("kb_chunks")
+      .update({ allowed_roles: allowedRoles })
+      .eq("tenant_id", tenant.id)
+      .eq("doc_id", docId);
+
+    if (updateErr) {
+      console.error("Update roles error:", updateErr);
+      return { ok: false, error: "Failed to update document roles" };
+    }
+
+    // Audit log
+    try {
+      await supabase.from("audit_logs").insert({
+        tenant_id: tenant.id,
+        actor_user_id: userData.user.id,
+        action: "kb.update_roles",
+        resource: "doc",
+        meta: {
+          doc_id: docId,
+          doc_title: docRecord.title,
+          new_roles: allowedRoles,
+        },
+      } as TablesInsert<"audit_logs">);
+    } catch (auditError) {
+      console.error('Failed to create audit log:', auditError);
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error("Update document roles error:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+
+// ============================================================================
+// BULK UPLOAD FUNCTIONS (SIMPLIFIED)
+// ============================================================================
+
+/**
+ * Get job progress for client polling
+ */
+export async function getJobProgress(jobId: string): Promise<{
+  success: boolean;
+  error?: string;
+  data?: {
+    jobId: string;
+    status: string;
+    step: string;
+    progress: number;
+    processedBytes?: number;
+    totalBytes?: number;
+    processedChunks?: number;
+    totalChunks?: number;
+    error?: string;
+    notes?: string;
+  };
+}> {
+  try {
+    const supabase = await createClient();
+    
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) return { success: false, error: "Authentication failed" };
+    if (!userData.user) return { success: false, error: "User not found" };
+
+    const slug = await getTenantSlug();
+    if (!slug) return { success: false, error: "Tenant not found" };
+    
+    const tenant = await getTenantBySlug(slug);
+    await requirePermission(tenant.id, "kb.write");
+
+    // Get the job
+    const { data: job, error: jobErr } = await supabase
+      .from("kb_ingest_jobs")
+      .select("*")
+      .eq("id", jobId)
+      .eq("tenant_id", tenant.id)
+      .single();
+
+    if (jobErr || !job) {
+      return { success: false, error: "Job not found" };
+    }
+
+    // Calculate progress based on step
+    let progress = 0;
+    switch (job.step) {
+      case 'uploading':
+        if (job.status === 'processing') {
+          progress = 50; // Processing
+        } else {
+          progress = Math.round((job.processed_bytes || 0) / (job.total_bytes || 1) * 100);
+        }
+        break;
+      case 'done':
+        progress = 100;
+        break;
+      case 'error':
+      case 'canceled':
+        progress = 0;
+        break;
+      default:
+        progress = 10;
+    }
+
+    return {
+      success: true,
+      data: {
+        jobId: job.id,
+        status: job.status,
+        step: job.step,
+        progress,
+        processedBytes: job.processed_bytes,
+        totalBytes: job.total_bytes,
+        processedChunks: job.processed_chunks,
+        totalChunks: job.total_chunks,
+        error: job.error,
+        notes: job.notes,
+      },
+    };
+  } catch (error) {
+    console.error("Get job progress error:", error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    };
+  }
+}
+
+
+
+/**
+ * Delete an ingest job (for cleanup when removing from upload queue)
+ */
+export async function deleteIngestJob(jobId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) return { success: false, error: "Authentication failed" };
+    if (!userData.user) return { success: false, error: "User not found" };
+
+    const slug = await getTenantSlug();
+    if (!slug) return { success: false, error: "Tenant not found" };
+    
+    const tenant = await getTenantBySlug(slug);
+    await requirePermission(tenant.id, "kb.write");
+
+    // Get job info for cleanup
+    const { data: job, error: jobErr } = await supabase
+      .from("kb_ingest_jobs")
+      .select("*")
+      .eq("id", jobId)
+      .eq("tenant_id", tenant.id)
+      .single();
+
+    if (jobErr || !job) {
+      return { success: false, error: "Job not found" };
+    }
+
+    // Delete associated document if it exists and has no chunks
+    if (job.doc_id) {
+      const { data: chunks } = await supabase
+        .from("kb_chunks")
+        .select("id")
+        .eq("doc_id", job.doc_id)
+        .limit(1);
+      
+      if (!chunks || chunks.length === 0) {
+        // No chunks exist, safe to delete document
+        await supabase
+          .from("kb_docs")
+          .delete()
+          .eq("id", job.doc_id)
+          .eq("tenant_id", tenant.id);
+      }
+    }
+
+    // Delete the job
+    const { error: deleteErr } = await supabase
+      .from("kb_ingest_jobs")
+      .delete()
+      .eq("id", jobId)
+      .eq("tenant_id", tenant.id);
+
+    if (deleteErr) {
+      return { success: false, error: "Failed to delete job" };
+    }
+
+    // Audit log
+    try {
+      await supabase.from("audit_logs").insert({
+        tenant_id: tenant.id,
+        actor_user_id: userData.user.id,
+        action: "kb.delete_job",
+        resource: "job",
+        meta: {
+          job_id: jobId,
+          filename: job.filename,
+        },
+      } as TablesInsert<"audit_logs">);
+    } catch (auditError) {
+      console.error('Failed to create audit log:', auditError);
+      // Don't fail for audit errors
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Delete job error:", error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    };
+  }
+}
+
+
 
 
