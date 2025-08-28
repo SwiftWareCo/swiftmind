@@ -1,7 +1,6 @@
 "use server";
 import { createClient } from "@/server/supabase/server";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { requirePermission } from "@/lib/utils/requirePermission";
 import { getTenantSlug } from "@/lib/utils/tenant";
 import { getTenantBySlug } from "@/server/tenants/tenants.data";
@@ -84,7 +83,7 @@ export async function startGoogleConnectAction(redirectTo?: string): Promise<Sta
 export async function disconnectGoogleAction(): Promise<{ ok: boolean; error?: string }> {
   const ctx = await getResolvedTenantAndUser();
   if (!ctx.ok) return { ok: false, error: ctx.error };
-  const { user, tenant } = ctx;
+  const { tenant } = ctx;
   try {
     await requirePermission(tenant.id, "members.manage");
   } catch (e: unknown) {
@@ -215,7 +214,7 @@ export async function handleGoogleCallbackAction(params: { code?: string | null;
     } as unknown as TablesInsert<"audit_logs">);
   } catch {}
 
-  // Build absolute tenant-aware redirect URL
+    // Build absolute tenant-aware redirect URL
   let redirectTo = stateRow.redirect_to || "/connections";
   try {
     // Try direct tenants read
@@ -240,14 +239,9 @@ export async function handleGoogleCallbackAction(params: { code?: string | null;
     }
 
     if (slug) {
-      const hdrs = await headers();
-      const host = hdrs.get("host") || "localhost:3000";
-      const forwardedProto = hdrs.get("x-forwarded-proto") || "";
-      const isHttps = forwardedProto.includes("https");
-      const scheme = isHttps ? "https" : "http";
-      const baseDomain = process.env.NEXT_PUBLIC_APP_BASE_DOMAIN || host.split(":")[0];
-      const portPart = host.includes(":") ? `:${host.split(":")[1]}` : "";
-      redirectTo = `${scheme}://${slug}.${baseDomain}${portPart}${redirectTo}`;
+      // Use centralized tenant URL builder
+      const { buildTenantUrl } = await import("@/lib/utils/tenant");
+      redirectTo = await buildTenantUrl(slug, redirectTo);
     }
   } catch {}
 

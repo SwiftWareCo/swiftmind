@@ -4,6 +4,7 @@ import { createClient } from "@/server/supabase/server";
 import { createAdminClient } from "@/server/supabase/admin";
 import { requirePlatformAdmin } from "@/server/platform/platform-admin.data";
 import type { Tables, TablesInsert } from "@/lib/types/database.types";
+import { revalidatePath } from "next/cache";
 
 export type AcceptInviteResult = { ok: boolean; error?: string; tenant_slug?: string };
 
@@ -11,7 +12,13 @@ export type CreateTenantResult = {
   ok: boolean;
   error?: string;
   tenant?: Pick<Tables<"tenants">, "id" | "name" | "slug">;
-  createdAdmin?: { userId: string; email: string; temporaryPassword?: string };
+  createdAdmin?: { 
+    userId: string; 
+    email: string; 
+    temporaryPassword?: string;
+    inviteLink?: string;
+    method?: "temporary_password" | "invitation_link" | "existing_user";
+  };
 };
 
 export async function acceptInviteAction(token: string, displayName?: string): Promise<AcceptInviteResult> {
@@ -30,7 +37,12 @@ export async function acceptInviteAction(token: string, displayName?: string): P
   return { ok: true, tenant_slug: slug };
 }
 
-export async function createTenantAction(name: string, slug: string, initialAdminEmail?: string): Promise<CreateTenantResult> {
+export async function createTenantAction(
+  name: string, 
+  slug: string, 
+  initialAdminEmail?: string,
+  adminMethod: "invitation_link" | "temporary_password" = "invitation_link"
+): Promise<CreateTenantResult> {
   await requirePlatformAdmin();
 
   const n = (name || "").trim();
@@ -85,37 +97,31 @@ export async function createTenantAction(name: string, slug: string, initialAdmi
     } as unknown as TablesInsert<"role_permissions">, { onConflict: "tenant_id,role_key,permission_key" } as unknown as { onConflict: string });
   }
 
-  // 4) Optional initial admin membership (operator-only): if the auth user exists already
+  // 4) Optional initial admin setup
   if (initialAdminEmail) {
-    const email = initialAdminEmail.trim().toLowerCase();
-    if (email) {
-      const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1, email } as unknown as { page?: number; perPage?: number; email?: string });
-      let userId: string | null = (list?.users || []).find((u) => u.email?.toLowerCase() === email)?.id || null;
-
-      // If no auth user exists, create one with a temporary password
-      let temporaryPassword: string | undefined;
-      if (!userId) {
-        temporaryPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-4);
-        const { data: created } = await admin.auth.admin.createUser({
-          email,
-          password: temporaryPassword,
-          email_confirm: true,
-        } as unknown as { email: string; password: string; email_confirm?: boolean });
-        userId = created?.user?.id || null;
-      }
-
-      if (userId) {
-        await admin.from("memberships").upsert({
-          tenant_id: tenantId,
-          user_id: userId,
-          role_key: "admin",
-        } as unknown as TablesInsert<"memberships">, { onConflict: "tenant_id,user_id" } as unknown as { onConflict: string });
-
-        return { ok: true, tenant: tenantRow, createdAdmin: { userId, email, temporaryPassword } };
-      }
+    const { setupInitialTenantAdmin } = await import("@/server/auth/initial-admin-setup");
+    const adminSetup = await setupInitialTenantAdmin(tenantId, initialAdminEmail, adminMethod);
+    
+    if (adminSetup.ok) {
+      revalidatePath("/backoffice");
+      return { 
+        ok: true, 
+        tenant: tenantRow, 
+        createdAdmin: adminSetup.credentials ? {
+          userId: "", // We don't need to expose internal user ID
+          email: adminSetup.credentials.email,
+          temporaryPassword: adminSetup.credentials.temporaryPassword,
+          inviteLink: adminSetup.credentials.inviteLink,
+          method: adminSetup.method
+        } : undefined
+      };
+    } else {
+      // Continue without admin setup if it fails
+      console.error("Failed to setup initial admin:", adminSetup.error);
     }
   }
 
+  revalidatePath("/backoffice");
   return { ok: true, tenant: tenantRow };
 }
 

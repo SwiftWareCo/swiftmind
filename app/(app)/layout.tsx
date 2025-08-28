@@ -7,7 +7,7 @@ import { createClient } from "@/server/supabase/server";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import {Toaster} from "@/components/ui/sonner"
 import { TenantShell } from "@/components/tenant/TenantShell";
-import { headers } from "next/headers";
+import { isPlatformAdmin } from "@/server/platform/platform-admin.data";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
@@ -20,9 +20,19 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   const slug = await getTenantSlug();
-  // When hitting apex host (no slug), redirect users with memberships to a tenant or show a friendly message
+  
+  // When hitting apex host (no slug), handle platform admins and regular users differently
   if (!slug) {
-    // Resolve first membership and direct to dashboard on that tenant, otherwise show notFound
+    // Check if user is platform admin first
+    const isAdmin = await isPlatformAdmin();
+    
+    if (isAdmin) {
+      // Platform admins should go to backoffice, not tenant dashboards
+      console.log("🔐 [LAYOUT] Platform admin detected, redirecting to /backoffice");
+      redirect("/backoffice");
+    }
+    
+    // For regular users, resolve first membership and direct to dashboard on that tenant
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: first } = await supabase
@@ -35,15 +45,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       let firstSlug: string | null = null;
       const t = first?.tenants;
       if (t) firstSlug = Array.isArray(t) ? t[0]?.slug ?? null : t.slug;
-      const baseDomain = process.env.NEXT_PUBLIC_APP_BASE_DOMAIN;
-      if (firstSlug && baseDomain) {
-        const host = (await headers()).get("host") || "";
-        const port = host.includes(":") ? host.split(":")[1] : "";
-        const portPart = port ? `:${port}` : "";
-        const proto = ((await headers()).get("x-forwarded-proto") || "http").split(",")[0];
-        redirect(`${proto}://${firstSlug}.${baseDomain}${portPart}/dashboard`);
+      if (firstSlug) {
+        const { buildTenantUrl } = await import("@/lib/utils/tenant");
+        const tenantUrl = await buildTenantUrl(firstSlug, "/dashboard");
+        redirect(tenantUrl);
       }
-      redirect("/dashboard");
+      
+      // If no tenant memberships, show no access page
+      redirect("/no-access");
     }
     notFound();
   }
@@ -56,40 +65,45 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     notFound();
   }
 
-  // Membership gating
-  const [{ count: totalMemberships }, { data: membership, error: membershipError }] = await Promise.all([
-    supabase
-      .from("memberships")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id),
-    supabase
-      .from("memberships")
-      .select("id")
-      .eq("tenant_id", tenant.id)
-      .eq("user_id", user.id)
-      .maybeSingle<{ id: string }>(),
-  ]);
+  // Check if user is platform admin
+  const isAdmin = await isPlatformAdmin();
 
-  if ((totalMemberships ?? 0) === 0) {
-    redirect("/no-access");
-  }
-  if (membershipError) {
-    console.error(membershipError);
-    notFound();
-  }
-  if (!membership) {
-    return (
-      <div className="p-8">
-        <div className="mx-auto max-w-lg text-center space-y-2">
-          <h1 className="text-xl font-semibold">Not a member of this organization</h1>
-          <p className="text-sm text-muted-foreground">You don’t have access to this tenant. Switch to an organization you belong to.</p>
-          <div className="mt-4">
-            {/* Minimal header with switcher for convenience */}
-            <Toaster />
+  // Membership gating (skip for platform admins)
+  if (!isAdmin) {
+    const [{ count: totalMemberships }, { data: membership, error: membershipError }] = await Promise.all([
+      supabase
+        .from("memberships")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id),
+      supabase
+        .from("memberships")
+        .select("id")
+        .eq("tenant_id", tenant.id)
+        .eq("user_id", user.id)
+        .maybeSingle<{ id: string }>(),
+    ]);
+
+    if ((totalMemberships ?? 0) === 0) {
+      redirect("/no-access");
+    }
+    if (membershipError) {
+      console.error(membershipError);
+      notFound();
+    }
+    if (!membership) {
+      return (
+        <div className="p-8">
+          <div className="mx-auto max-w-lg text-center space-y-2">
+            <h1 className="text-xl font-semibold">Not a member of this organization</h1>
+            <p className="text-sm text-muted-foreground">You don&apos;t have access to this tenant. Switch to an organization you belong to.</p>
+            <div className="mt-4">
+              {/* Minimal header with switcher for convenience */}
+              <Toaster />
+            </div>
           </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
   return (

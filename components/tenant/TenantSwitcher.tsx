@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,11 +8,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { buildTenantUrl } from "@/lib/utils/utils";
 
 type Item = { id: string; slug: string; name: string };
 
 export function TenantSwitcher({ memberships }: { memberships: Item[] }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const items = useMemo(() => {
     const map = new Map<string, { id: string; slug: string; name: string }>();
@@ -41,17 +40,9 @@ export function TenantSwitcher({ memberships }: { memberships: Item[] }) {
               key={it.id}
               onClick={() => {
                 setOpen(false);
-                const baseDomain = process.env.NEXT_PUBLIC_APP_BASE_DOMAIN;
-                if (baseDomain) {
-                  const host = typeof window !== "undefined" ? window.location.host : "";
-                  const port = host.includes(":") ? host.split(":")[1] : "";
-                  const portPart = port ? `:${port}` : "";
-                  const proto = typeof window !== "undefined" ? window.location.protocol : "https:";
-                  window.location.href = `${proto}//${it.slug}.${baseDomain}${portPart}/dashboard`;
-                } else {
-                  // Fallback: same host, path-based not used; navigate root
-                  router.push("/dashboard");
-                }
+                // Use centralized tenant URL builder
+                const tenantUrl = buildTenantUrl(it.slug, "/dashboard");
+                window.location.href = tenantUrl;
               }}
               className="w-full text-left px-3 py-2 text-sm hover:bg-muted"
             >

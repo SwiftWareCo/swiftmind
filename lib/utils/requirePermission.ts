@@ -10,6 +10,7 @@ import "server-only";
  * - Throws Error("500") if RPC fails or SQL wrapper is missing
  */
 import { createClient } from "@/server/supabase/server";
+import { isPlatformAdmin } from "@/server/platform/platform-admin.data";
 
 export async function requirePermission(tenantId: string, perm: string): Promise<void> {
   const supabase = await createClient();
@@ -25,6 +26,12 @@ export async function requirePermission(tenantId: string, perm: string): Promise
   }
   if (!user) {
     throw new Error("401");
+  }
+
+  // Platform admins bypass all permission checks
+  const isAdmin = await isPlatformAdmin();
+  if (isAdmin) {
+    return; // Platform admin has all permissions
   }
 
   const { data, error } = await supabase.rpc("user_has_permission", {

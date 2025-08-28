@@ -101,4 +101,37 @@ export async function signOut(): Promise<void> {
   redirect("/auth/login");
 }
 
+export async function resendConfirmationEmail(prevState: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) return { ok: false, error: "Email is required" };
+
+  const supabase = await createClient();
+  const siteUrl = await getSiteUrl();
+  
+  // Use the same redirect URL as signup
+  const emailRedirectTo = `${siteUrl}/auth/confirm?next=/dashboard`;
+  
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo }
+  });
+  
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export async function resendPasswordResetEmail(prevState: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) return { ok: false, error: "Email is required" };
+
+  const supabase = await createClient();
+  const siteUrl = await getSiteUrl();
+  const redirectTo = `${siteUrl}/auth/confirm?type=recovery&next=/auth/update-password`;
+  
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 

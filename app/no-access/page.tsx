@@ -30,16 +30,11 @@ export default async function NoAccessPage() {
       if (Array.isArray(first.tenants)) slug = first.tenants[0]?.slug ?? null;
       else slug = first.tenants.slug;
     }
-    const baseDomain = process.env.NEXT_PUBLIC_APP_BASE_DOMAIN;
-    if (slug && baseDomain) {
-      // Try to preserve dev port
-      const hdrHost = (await headers()).get("host") || "";
-      const port = hdrHost.includes(":") ? hdrHost.split(":")[1] : "";
-      const portPart = port ? `:${port}` : "";
-      const proto = ((await headers()).get("x-forwarded-proto") || "http").split(",")[0];
-      redirect(`${proto}://${slug}.${baseDomain}${portPart}/dashboard`);
+    if (slug) {
+      const { buildTenantUrl } = await import("@/lib/utils/tenant");
+      const tenantUrl = await buildTenantUrl(slug, "/dashboard");
+      redirect(tenantUrl);
     }
-    redirect("/dashboard");
   }
 
   // Determine if we should prompt for display name here as well

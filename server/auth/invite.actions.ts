@@ -41,7 +41,7 @@ export async function sendInviteMagicLinkAction(token: string): Promise<ActionRe
   return { ok: true };
 }
 
-export async function completeInviteAction(token: string, displayName: string, newPassword: string): Promise<ActionResult> {
+export async function completeInviteAction(token: string, displayName: string, newPassword: string): Promise<ActionResult | void> {
   const name = (displayName || "").trim();
   const pass = (newPassword || "").trim();
   if (!token || !name || pass.length < 8) return { ok: false, error: "Missing inputs" };
@@ -63,44 +63,107 @@ export async function completeInviteAction(token: string, displayName: string, n
   const res = await acceptInviteAction(token, name);
   if (!res.ok) return { ok: false, error: res.error || "Failed to accept invite" };
 
-  return { ok: true, tenant_slug: res.tenant_slug };
+  // Redirect to tenant dashboard after successful invite acceptance
+  const { buildTenantUrl } = await import("@/lib/utils/tenant");
+  const dashboardUrl = await buildTenantUrl(res.tenant_slug!, "/dashboard");
+  
+  const { redirect } = await import("next/navigation");
+  redirect(dashboardUrl);
+  
+
 }
 
-export async function completeInviteNewUserAction(token: string, displayName: string, password: string): Promise<ActionResult> {
+export async function completeInviteNewUserAction(token: string, displayName: string, password: string): Promise<ActionResult | void> {
+
+  
   const name = (displayName || "").trim();
   const pass = (password || "").trim();
-  if (!token || !name || pass.length < 8) return { ok: false, error: "Missing inputs" };
+  if (!token || !name || pass.length < 8) {
+
+    return { ok: false, error: "Missing inputs" };
+  }
 
   // Admin client for RLS-bypassed reads and user creation
+
   const admin = await createAdminClient();
 
   // Look up invite to get email
+
   const { data: inv, error: invErr } = await admin
     .from("invites")
     .select("email, revoked_at, expires_at, accepted_at")
     .eq("token", token)
     .maybeSingle<{ email: string; revoked_at: string | null; expires_at: string | null; accepted_at: string | null }>();
-  if (invErr || !inv) return { ok: false, error: "Invalid invite" };
-  if (inv.revoked_at) return { ok: false, error: "Invite revoked" };
-  if (inv.accepted_at) return { ok: false, error: "Invite already accepted" };
-  if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) return { ok: false, error: "Invite expired" };
+  
+  if (invErr || !inv) {
+
+    return { ok: false, error: "Invalid invite" };
+  }
+  
+
+  
+  if (inv.revoked_at) {
+
+    return { ok: false, error: "Invite revoked" };
+  }
+  if (inv.accepted_at) {
+
+    return { ok: false, error: "Invite already accepted" };
+  }
+  if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
+
+    return { ok: false, error: "Invite expired" };
+  }
 
   const email = inv.email;
+
+  
   // Create the user and mark email confirmed
   const { error: signErr } = await admin.auth.admin.createUser({ email, password: pass, email_confirm: true });
-  if (signErr) return { ok: false, error: signErr.message };
+  if (signErr) {
+
+    return { ok: false, error: signErr.message };
+  }
+  
+
 
   // Start a session for the new user using the request-scoped server client (sets cookies)
+
   const userClient = await createClient();
   const { data: signInData, error: signInErr } = await userClient.auth.signInWithPassword({ email, password: pass });
-  if (signInErr || !signInData?.session) return { ok: false, error: "Failed to start session for new user" };
+  if (signInErr || !signInData?.session) {
+
+    return { ok: false, error: "Failed to start session for new user" };
+  }
+  
+
 
   // Now authenticated as the new user; set profile and accept invite
+
   const prof = await ensureUserProfileAction(name);
-  if (!prof.ok) return prof;
+  if (!prof.ok) {
+
+    return prof;
+  }
+  
+
+  
   const res = await acceptInviteAction(token, name);
-  if (!res.ok) return { ok: false, error: res.error || "Failed to accept invite" };
-  return { ok: true, tenant_slug: res.tenant_slug };
+  if (!res.ok) {
+
+    return { ok: false, error: res.error || "Failed to accept invite" };
+  }
+  
+
+  
+  // Redirect to tenant dashboard after successful invite acceptance
+  const { buildTenantUrl } = await import("@/lib/utils/tenant");
+  const dashboardUrl = await buildTenantUrl(res.tenant_slug!, "/dashboard");
+  
+  const { redirect } = await import("next/navigation");
+  redirect(dashboardUrl);
+  
+
 }
 
 

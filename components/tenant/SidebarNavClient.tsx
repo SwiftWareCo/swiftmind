@@ -29,7 +29,6 @@ export function SidebarNavClient({ isAdmin }: { isAdmin: boolean }) {
       <NavItem href="/chat" label="Chat" active={isActive("/chat")} />
       <NavItem href="/knowledge" label="Upload Documents" active={pathname === "/knowledge"} />
       <NavItem href="/knowledge/browse" label="Browse Knowledge" active={isActive("/knowledge/browse")} />
-      <NavItem href="/connections" label="Connections" active={isActive("/connections")} />
 
       {isAdmin && (
         <div className="mt-4">
@@ -37,6 +36,8 @@ export function SidebarNavClient({ isAdmin }: { isAdmin: boolean }) {
           <NavItem href="/members" label="Members" active={isActive("/members")} />
           <NavItem href="/audit" label="Audit" active={isActive("/audit")} />
           <NavItem href="/settings" label="Settings" active={isActive("/settings")} />
+      <NavItem href="/connections" label="Connections" active={isActive("/connections")} />
+
         </div>
       )}
     </nav>

@@ -3,7 +3,10 @@ import { LoginForm } from "@/components/auth/LoginForm";
 
 export default function Page() {
   return (
-    <AuthShell title="Welcome back" subtitle="Sign in to continue your session">
+    <AuthShell 
+      title="Welcome back" 
+      subtitle="Sign in to continue your session"
+    >
       <LoginForm />
     </AuthShell>
   );

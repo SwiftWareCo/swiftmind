@@ -3,7 +3,10 @@ import { ForgotPasswordForm } from "@/components/auth/ForgotPasswordForm";
 
 export default function Page() {
   return (
-    <AuthShell title="Reset your password" subtitle="Enter your email and we’ll send you a reset link">
+    <AuthShell 
+      title="Reset your password" 
+      subtitle="Don't worry, we'll help you get back in"
+    >
       <ForgotPasswordForm />
     </AuthShell>
   );

@@ -14,9 +14,27 @@ export async function getTenantSlug(): Promise<string | null> {
 
 
 /**
- * Build a tenant-scoped absolute URL for the given path.
- * - In development (localhost), preserves the current port and uses http.
- * - In production, uses https and NEXT_PUBLIC_APP_BASE_DOMAIN.
+ * 🔧 SERVER-SIDE Tenant URL Builder
+ * 
+ * Use this function in SERVER COMPONENTS and SERVER ACTIONS
+ * - Pages, layouts, and server components
+ * - Server actions and API routes
+ * - Any code that runs on the server and needs headers()
+ * 
+ * @param slug - The tenant subdomain slug (e.g., "acme")
+ * @param path - The path within the tenant (e.g., "/dashboard")
+ * @returns Promise<string> - Full URL with tenant subdomain and port
+ * 
+ * @example
+ * // In a server component:
+ * import { buildTenantUrl } from "@/lib/utils/tenant";
+ * const url = await buildTenantUrl("acme", "/dashboard");
+ * redirect(url);
+ * 
+ * @example
+ * // In a server action:
+ * const { buildTenantUrl } = await import("@/lib/utils/tenant");
+ * const tenantUrl = await buildTenantUrl(slug, "/dashboard");
  */
 export async function buildTenantUrl(slug: string, path: string): Promise<string> {
   const hdrs = await headers();
