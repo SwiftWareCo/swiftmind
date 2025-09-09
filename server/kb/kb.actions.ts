@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 
 export type UploadState = { ok: boolean; error?: string; jobId?: string; docId?: string };
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50MB (Supabase global limit)
 
 export async function uploadAndIngest(prev: UploadState | undefined, formData: FormData): Promise<UploadState> {
   console.log("🚀 uploadAndIngest: Starting upload and ingest process");
@@ -46,7 +46,7 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
 
   if (!(file instanceof File)) return { ok: false, error: "No file provided" };
   if (file.size === 0) return { ok: false, error: "File is empty" };
-  if (file.size > MAX_FILE_BYTES) return { ok: false, error: "File too large (max 20MB)" };
+  if (file.size > MAX_FILE_BYTES) return { ok: false, error: "File too large (max 50MB)" };
 
   console.log(`📁 uploadAndIngest: Processing file "${file.name}" (${file.size} bytes, type: ${file.type})`);
 
@@ -326,20 +326,28 @@ export async function uploadAndIngest(prev: UploadState | undefined, formData: F
       } as unknown as TablesInsert<"audit_logs">);
     } catch {}
 
-    // Clean up storage file after successful processing (7-day retention policy)
+    // Clean up storage file after successful processing (free tier optimization)
     try {
       if (storagePath) {
-        console.log(`🗑️ uploadAndIngest: Scheduling cleanup for ${storagePath} in 7 days`);
-        // Note: In a full implementation, this would be handled by a background job
-        // For now, we keep files for 7 days for debugging and potential reprocessing
+        console.log(`🗑️ uploadAndIngest: Cleaning up storage file: ${storagePath}`);
+        const { error: deleteError } = await supabase.storage
+          .from('knowledge-files')
+          .remove([storagePath]);
         
-        // Optional: Delete immediately to save storage (uncomment if preferred)
-        // const { error: deleteError } = await supabase.storage
-        //   .from('knowledge-files')
-        //   .remove([storagePath]);
-        // if (deleteError) console.error('Storage cleanup failed:', deleteError);
+        if (deleteError) {
+          console.error('Storage cleanup failed:', deleteError);
+          // Don't fail the upload for cleanup errors
+        } else {
+          console.log(`✅ uploadAndIngest: Storage file cleaned up successfully`);
+          
+          // Update job record to remove storage path since file is deleted
+          await supabase.from("kb_ingest_jobs").update({ 
+            storage_path: null,
+            notes: 'Storage file cleaned up after successful processing'
+          }).eq("id", jobId).eq("tenant_id", tenantId);
+        }
       }
-      console.log(`✅ uploadAndIngest: Successfully processed file, storage preserved for 7 days`);
+      console.log(`✅ uploadAndIngest: Successfully processed file, storage cleaned up`);
     } catch (cleanupError) {
       console.error('Error during cleanup:', cleanupError);
       // Don't fail the upload for cleanup errors
@@ -395,7 +403,7 @@ export async function deleteKbDoc(prev: DeleteState | undefined, formData: FormD
   const docId = String(formData.get("doc_id") || "").trim();
   if (!docId) return { ok: false, error: "Missing doc_id" };
 
-  // Ensure doc belongs to tenant
+  // Ensure doc belongs to tenant and get job info for cleanup
   const { data: docRecord, error: docErr } = await supabase
     .from("kb_docs")
     .select("id")
@@ -405,8 +413,31 @@ export async function deleteKbDoc(prev: DeleteState | undefined, formData: FormD
   if (docErr) return { ok: false, error: "500" };
   if (!docRecord) return { ok: false, error: "Not found" };
 
-  // Fetch source_id to consider cleanup of orphaned sources
+  // Fetch source_id and any associated job with storage path
   const { data: srcRow } = await supabase.from("kb_docs").select("source_id").eq("id", docId).eq("tenant_id", tenantId).maybeSingle<{ source_id: string | null }>();
+  
+  // Check for associated job with storage path for cleanup
+  const { data: jobRecord } = await supabase
+    .from("kb_ingest_jobs")
+    .select("storage_path")
+    .eq("doc_id", docId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle<{ storage_path: string | null }>();
+  
+  // Clean up storage file if it exists
+  if (jobRecord?.storage_path) {
+    console.log(`🗑️ deleteKbDoc: Cleaning up storage file: ${jobRecord.storage_path}`);
+    const { error: deleteError } = await supabase.storage
+      .from('knowledge-files')
+      .remove([jobRecord.storage_path]);
+    
+    if (deleteError) {
+      console.error('Storage cleanup failed during document deletion:', deleteError);
+      // Continue with deletion even if storage cleanup fails
+    } else {
+      console.log(`✅ deleteKbDoc: Storage file cleaned up successfully`);
+    }
+  }
 
   // Delete chunks first for clarity if cascade isn't present
   const { error: chunksErr } = await supabase.from("kb_chunks").delete().eq("tenant_id", tenantId).eq("doc_id", docId);

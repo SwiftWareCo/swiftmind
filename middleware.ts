@@ -71,8 +71,9 @@ export async function middleware(request: NextRequest) {
     "/auth/",
     "/invite/accept",
     "/oauth/",
+    '/privacy',
+    '/terms',
     "/api/",
-    "/backoffice",
     "/error",
     "/not-found",
     "/_next/",
@@ -105,14 +106,11 @@ export async function middleware(request: NextRequest) {
         .maybeSingle();
       
       if (platformAdmin?.user_id) {
-        console.log("🔐 [MIDDLEWARE] Platform admin detected, redirecting to /backoffice");
         return NextResponse.redirect(new URL("/backoffice", request.url));
       } else {
-        console.log("🔐 [MIDDLEWARE] Regular user, redirecting to /dashboard");
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     } catch (error) {
-      console.log("⚠️ [MIDDLEWARE] Platform admin check failed, defaulting to /dashboard:", error);
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
   }

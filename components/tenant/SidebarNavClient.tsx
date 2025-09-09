@@ -9,8 +9,8 @@ function NavItem({ href, label, active }: { href: string; label: string; active:
     <Link
       href={href}
       className={cn(
-        "block px-4 py-2.5 text-sm",
-        active ? "bg-muted font-medium" : "text-foreground/90 hover:bg-muted"
+        "block px-4 py-2.5 text-sm cursor-pointer",
+        active ? "bg-slate-800 text-slate-100 font-medium" : "text-slate-300 hover:bg-slate-800/50 hover:text-slate-100"
       )}
     >
       {label}
@@ -18,21 +18,22 @@ function NavItem({ href, label, active }: { href: string; label: string; active:
   );
 }
 
-export function SidebarNavClient({ isAdmin }: { isAdmin: boolean }) {
+export function SidebarNavClient({ isAdmin, canAccessKnowledge }: { isAdmin: boolean; canAccessKnowledge: boolean }) {
   const pathname = usePathname() || "/";
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   return (
     <nav className="py-4">
-      <div className="px-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Main</div>
+      <div className="px-4 pb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Main</div>
       <NavItem href="/dashboard" label="Dashboard" active={isActive("/dashboard")} />
       <NavItem href="/chat" label="Chat" active={isActive("/chat")} />
-      <NavItem href="/knowledge" label="Upload Documents" active={pathname === "/knowledge"} />
-      <NavItem href="/knowledge/browse" label="Browse Knowledge" active={isActive("/knowledge/browse")} />
+      {canAccessKnowledge && (
+        <NavItem href="/knowledge" label="Knowledge" active={isActive("/knowledge")} />
+      )}
 
       {isAdmin && (
         <div className="mt-4">
-          <div className="px-4 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Admin</div>
+          <div className="px-4 pb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Admin</div>
           <NavItem href="/members" label="Members" active={isActive("/members")} />
           <NavItem href="/audit" label="Audit" active={isActive("/audit")} />
           <NavItem href="/settings" label="Settings" active={isActive("/settings")} />

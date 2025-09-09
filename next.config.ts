@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "20mb",
+      bodySizeLimit: "50mb", // Match Supabase global upload limit
     },
   },
 };

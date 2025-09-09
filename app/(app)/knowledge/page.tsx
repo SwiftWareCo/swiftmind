@@ -1,57 +1,40 @@
 import { getTenantSlug } from "@/lib/utils/tenant";
 import { getTenantBySlug } from "@/server/tenants/tenants.data";
-import { hasPermission } from "@/server/kb/kb.data";
-import { UnifiedUploadComponent } from "@/components/knowledge/UnifiedUploadComponent";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
-import { Search } from "lucide-react";
+import { requirePermission } from "@/lib/utils/requirePermission";
+import { hasPermission } from "@/server/permissions/permissions.data";
+import { QueryClient, dehydrate } from "@tanstack/react-query";
+import { HydrationProvider } from "@/components/providers/HydrationProvider";
+import { KnowledgePageClient } from "@/components/knowledge/KnowledgePageClient";
+import { createDatasetsListQueryOptions } from "@/lib/queryOptions/csvQueryOptions";
+import { listDatasets } from "@/server/csv/csv.data";
 
 export default async function KnowledgePage() {
   const slug = await getTenantSlug();
   if (!slug) throw new Error("Tenant not found");
   const tenant = await getTenantBySlug(slug);
-
+  
+  // Require at least read access to knowledge base
+  await requirePermission(tenant.id, "kb.read");
+  
+  // Check write permissions for documents and CSV
   const canWrite = await hasPermission(tenant.id, "kb.write");
 
-  if (!canWrite) {
-    return (
-      <div className="container mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Upload Documents</h1>
-          <p className="text-muted-foreground">{`You don't have permission to upload documents.`}</p>
-        </div>
-        
-        <div className="flex justify-center">
-          <Link href="/knowledge/browse">
-            <Button variant="outline" className="flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              Browse Existing Documents
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // Pre-fetch data on the server for hydration
+  const queryClient = new QueryClient();
+  
+  // Pre-populate the datasets query
+  await queryClient.prefetchQuery({
+    ...createDatasetsListQueryOptions(tenant.id),
+    queryFn: () => listDatasets(tenant.id),
+  });
+
+  const dehydratedState = dehydrate(queryClient);
 
   return (
-    <div className="container mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Upload Documents</h1>
-          <p className="text-muted-foreground">Add documents to your knowledge base.</p>
-        </div>
-        
-        <Link href="/knowledge/browse">
-          <Button variant="outline" className="flex items-center gap-2">
-            <Search className="h-4 w-4" />
-            Browse Documents
-          </Button>
-        </Link>
-      </div>
-
-      <UnifiedUploadComponent tenantId={tenant.id} />
+    <div className="">
+      <HydrationProvider dehydratedState={dehydratedState}>
+        <KnowledgePageClient tenantId={tenant.id} canWrite={canWrite} />
+      </HydrationProvider>
     </div>
   );
 }
-
-

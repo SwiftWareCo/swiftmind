@@ -8,7 +8,8 @@ export async function SidebarNav() {
   if (!slug) return null;
   const tenant = await getTenantBySlug(slug);
   const isAdmin = await hasPermission(tenant.id, "members.manage");
-  return <SidebarNavClient isAdmin={isAdmin} />;
+  const canAccessKnowledge = await hasPermission(tenant.id, "kb.read");
+  return <SidebarNavClient isAdmin={isAdmin} canAccessKnowledge={canAccessKnowledge} />;
 }
 
 

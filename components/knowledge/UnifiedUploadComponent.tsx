@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -18,16 +18,21 @@ import {
 } from "lucide-react";
 import { formatBytes } from "@/lib/utils/utils";
 import { toast } from "sonner";
+import { CsvConfigurationModal } from "@/components/csv/CsvConfigurationModal";
+import { createCsvAnalysisQueryOptions } from "@/lib/queryOptions/csvQueryOptions";
+import { useQuery } from "@tanstack/react-query";
 
-// Simplified types for unified upload
+// Enhanced types for unified upload with CSV support
 interface UploadFile {
   id: string;
   file: File;
-  status: 'pending' | 'uploading' | 'processing' | 'done' | 'error' | 'canceled';
-  step: 'queued' | 'uploading' | 'done' | 'error' | 'canceled';
+  type: 'document' | 'csv';
+  status: 'pending' | 'uploading' | 'processing' | 'ready_to_configure' | 'configuring' | 'done' | 'error' | 'canceled';
+  step: 'queued' | 'uploading' | 'analyzing' | 'ready_to_configure' | 'configuring' | 'ingesting' | 'done' | 'error' | 'canceled';
   progress: number;
   error?: string;
   jobId?: string;
+  datasetId?: string; // For CSV files
 }
 
 interface Props {
@@ -37,16 +42,64 @@ interface Props {
 export function UnifiedUploadComponent({ tenantId }: Props) {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isLoadingProgress, setIsLoadingProgress] = useState(true);
+  const [configureModal, setConfigureModal] = useState<{ open: boolean; datasetId?: string; fileName?: string }>({
+    open: false
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Mark tenantId as used (for future features like batch tracking)
   console.log("Upload component for tenant:", tenantId);
 
-  // Process a single file using the working uploadAndIngest logic
+  // Load any in-progress uploads on component mount
+  useEffect(() => {
+    const loadInProgressUploads = async () => {
+      try {
+        setIsLoadingProgress(true);
+        
+        // Check for pending CSV datasets
+        const { listDatasets } = await import('@/server/csv/csv.data');
+        const pendingCsvs = await listDatasets(tenantId);
+        
+        if (pendingCsvs && pendingCsvs.length > 0) {
+          const recentPendingCsvs = pendingCsvs.filter((d: any) => 
+            d.status === 'pending' && 
+            d.created_at && 
+            // Only show CSVs from last 2 hours to avoid clutter
+            new Date(d.created_at).getTime() > Date.now() - (2 * 60 * 60 * 1000)
+          );
+          
+          const csvUploadFiles: UploadFile[] = recentPendingCsvs.map((dataset: any) => ({
+            id: dataset.id,
+            file: new File([''], dataset.title + '.csv', { type: 'text/csv' }),
+            type: 'csv' as const,
+            status: 'ready_to_configure' as const,
+            step: 'ready_to_configure' as const,
+            progress: 100,
+            datasetId: dataset.id
+          }));
+          
+          setFiles(prev => [...prev, ...csvUploadFiles]);
+        }
+        
+        // Check for in-progress document jobs
+        const { getJobProgress } = await import('@/server/kb/kb.actions');
+        // Note: We'd need to track job IDs in localStorage or similar to restore document progress
+        // For now, document uploads that are interrupted will continue in background
+        
+      } catch (error) {
+        console.error('Failed to load in-progress uploads:', error);
+      } finally {
+        setIsLoadingProgress(false);
+      }
+    };
+    
+    loadInProgressUploads();
+  }, [tenantId]);
+
+  // Process a single file - auto-detect document vs CSV
   const processFile = useCallback(async (uploadFile: UploadFile) => {
     try {
-
-      
       // Update to uploading
       setFiles(prev => prev.map(f => 
         f.id === uploadFile.id 
@@ -54,45 +107,80 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
           : f
       ));
 
-      // Create FormData like the working uploadAndIngest function expects
-      const formData = new FormData();
-      formData.append('file', uploadFile.file);
-      // Default to admin only for security - users can change roles after upload
-      formData.append('allowed_roles', 'admin');
-
-      // Call the working upload function
-      const { uploadAndIngest } = await import('@/server/kb/kb.actions');
-      
-      // Simulate progress updates during upload
-      const progressInterval = setInterval(() => {
-        setFiles(prev => prev.map(f => 
-          f.id === uploadFile.id && f.status === 'uploading'
-            ? { ...f, progress: Math.min(f.progress + 10, 90) }
-            : f
-        ));
-      }, 500);
-
-      const result = await uploadAndIngest(undefined, formData);
-      
-      clearInterval(progressInterval);
-
-      if (result.ok) {
-        // Store jobId for potential future use (retry, delete, etc.)
+      if (uploadFile.type === 'csv') {
+        // Process CSV file
+        const formData = new FormData();
+        formData.append('file', uploadFile.file);
+        formData.append('title', uploadFile.file.name.replace('.csv', ''));
+        
+        // Update to analyzing
         setFiles(prev => prev.map(f => 
           f.id === uploadFile.id 
-            ? { ...f, status: 'done', step: 'done', progress: 100, jobId: result.jobId }
+            ? { ...f, status: 'processing', step: 'analyzing', progress: 30 }
             : f
         ));
-        toast.success(`${uploadFile.file.name} uploaded successfully! Default access: Admin only`);
+
+        const { beginCsvIngest } = await import('@/server/csv/csv.actions');
+        const result = await beginCsvIngest(formData);
+
+        if (result.ok && result.datasetId) {
+          // CSV analyzed successfully - ready for configuration
+          setFiles(prev => prev.map(f => 
+            f.id === uploadFile.id 
+              ? { 
+                  ...f, 
+                  status: 'ready_to_configure', 
+                  step: 'ready_to_configure', 
+                  progress: 100,
+                  datasetId: result.datasetId 
+                }
+              : f
+          ));
+          toast.success(`${uploadFile.file.name} analyzed successfully! Ready to configure column mappings.`);
+        } else {
+          setFiles(prev => prev.map(f => 
+            f.id === uploadFile.id 
+              ? { ...f, status: 'error', step: 'error', error: result.error || 'CSV analysis failed' }
+              : f
+          ));
+          toast.error(`Failed to analyze ${uploadFile.file.name}: ${result.error}`);
+        }
       } else {
-        setFiles(prev => prev.map(f => 
-          f.id === uploadFile.id 
-            ? { ...f, status: 'error', step: 'error', error: result.error || 'Upload failed' }
-            : f
-        ));
-        toast.error(`Failed to upload ${uploadFile.file.name}: ${result.error}`);
-      }
+        // Process document file (existing logic)
+        const formData = new FormData();
+        formData.append('file', uploadFile.file);
+        formData.append('allowed_roles', 'admin');
 
+        // Simulate progress updates during upload
+        const progressInterval = setInterval(() => {
+          setFiles(prev => prev.map(f => 
+            f.id === uploadFile.id && f.status === 'uploading'
+              ? { ...f, progress: Math.min(f.progress + 10, 90) }
+              : f
+          ));
+        }, 500);
+
+        const { uploadAndIngest } = await import('@/server/kb/kb.actions');
+        const result = await uploadAndIngest(undefined, formData);
+        
+        clearInterval(progressInterval);
+
+        if (result.ok) {
+          setFiles(prev => prev.map(f => 
+            f.id === uploadFile.id 
+              ? { ...f, status: 'done', step: 'done', progress: 100, jobId: result.jobId }
+              : f
+          ));
+          toast.success(`${uploadFile.file.name} uploaded successfully! Default access: Admin only`);
+        } else {
+          setFiles(prev => prev.map(f => 
+            f.id === uploadFile.id 
+              ? { ...f, status: 'error', step: 'error', error: result.error || 'Upload failed' }
+              : f
+          ));
+          toast.error(`Failed to upload ${uploadFile.file.name}: ${result.error}`);
+        }
+      }
     } catch (error) {
       setFiles(prev => prev.map(f => 
         f.id === uploadFile.id 
@@ -103,11 +191,18 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
     }
   }, []);
 
-  // Add files to queue with hybrid approach
+  // Detect file type based on extension
+  const detectFileType = (fileName: string): 'document' | 'csv' => {
+    const extension = fileName.toLowerCase().split('.').pop();
+    return extension === 'csv' ? 'csv' : 'document';
+  };
+
+  // Add files to queue with auto-detection
   const addFiles = useCallback((newFiles: File[]) => {
     const uploadFiles: UploadFile[] = newFiles.map(file => ({
       id: Math.random().toString(36).substring(2, 15),
       file,
+      type: detectFileType(file.name),
       status: 'pending',
       step: 'queued',
       progress: 0,
@@ -172,6 +267,20 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
     toast.success(`Removed ${file?.file.name || 'file'} from queue`);
   }, [files]);
 
+  const handleConfigureCsv = useCallback((fileId: string) => {
+    const file = files.find(f => f.id === fileId);
+    if (!file || !file.datasetId) {
+      toast.error('Dataset not found for configuration');
+      return;
+    }
+
+    setConfigureModal({
+      open: true,
+      datasetId: file.datasetId,
+      fileName: file.file.name
+    });
+  }, [files]);
+
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -206,6 +315,10 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
     switch (step) {
       case 'queued': return <Clock className="h-4 w-4" />;
       case 'uploading': return <Upload className="h-4 w-4" />;
+      case 'analyzing': return <Upload className="h-4 w-4" />;
+      case 'ready_to_configure': return <AlertCircle className="h-4 w-4 text-blue-500" />;
+      case 'configuring': return <Upload className="h-4 w-4" />;
+      case 'ingesting': return <Upload className="h-4 w-4" />;
       case 'done': return <CheckCircle className="h-4 w-4" />;
       case 'error':
       case 'canceled': return <AlertCircle className="h-4 w-4" />;
@@ -216,7 +329,11 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
   const getStepLabel = (step: UploadFile["step"]) => {
     switch (step) {
       case 'queued': return 'Queued';
-      case 'uploading': return 'Processing';
+      case 'uploading': return 'Uploading';
+      case 'analyzing': return 'Analyzing';
+      case 'ready_to_configure': return 'Ready to Configure';
+      case 'configuring': return 'Configuring';
+      case 'ingesting': return 'Importing Data';
       case 'done': return 'Complete';
       case 'error': return 'Error';
       case 'canceled': return 'Canceled';
@@ -229,6 +346,8 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
       case 'pending': return 'default';
       case 'uploading': return 'default';
       case 'processing': return 'default';
+      case 'ready_to_configure': return 'secondary';
+      case 'configuring': return 'default';
       case 'done': return 'default';
       case 'error': return 'destructive';
       case 'canceled': return 'secondary';
@@ -239,7 +358,8 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
   const summary = {
     total: files.length,
     done: files.filter(f => f.status === 'done').length,
-    processing: files.filter(f => f.status === 'uploading' || f.status === 'processing').length,
+    processing: files.filter(f => ['uploading', 'processing', 'configuring'].includes(f.status)).length,
+    readyToConfigure: files.filter(f => f.status === 'ready_to_configure').length,
     error: files.filter(f => f.status === 'error').length,
   };
 
@@ -248,11 +368,11 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
       <CardHeader className="flex-shrink-0">
         <CardTitle className="flex items-center gap-2">
           <Upload className="h-5 w-5" />
-          Upload Documents
+          Upload Content
         </CardTitle>
         <CardDescription>
-          Drop files here or click to select. Files are uploaded with admin-only access by default. 
-          You can edit roles after upload in Browse Documents.
+          Upload documents or CSV datasets. Documents get admin-only access by default (editable later). 
+          CSV files will be analyzed and require column mapping configuration.
         </CardDescription>
       </CardHeader>
       
@@ -277,8 +397,8 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
               Drop files here or click to select
             </p>
             <p className="text-sm text-muted-foreground">
-              Supports PDF, Markdown, HTML, and TXT files (max 20MB each)<br/>
-              Files persist across page refreshes during upload
+              Supports documents (PDF, MD, HTML, TXT) and datasets (CSV) - max 50MB each<br/>
+              CSV files will be analyzed for column mapping configuration
             </p>
           </div>
         </div>
@@ -287,10 +407,17 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.md,.txt,.html"
+          accept=".pdf,.md,.txt,.html,.csv"
           className="hidden"
           onChange={handleFileSelect}
         />
+
+        {/* Loading indicator for progress restoration */}
+        {isLoadingProgress && (
+          <div className="flex items-center justify-center py-4">
+            <div className="text-sm text-muted-foreground">Loading previous uploads...</div>
+          </div>
+        )}
 
         {/* Upload Queue - appears below dotted lines */}
         {files.length > 0 && (
@@ -301,6 +428,9 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
               <div className="flex gap-2 text-sm">
                 {summary.processing > 0 && (
                   <Badge variant="default">{summary.processing} processing</Badge>
+                )}
+                {summary.readyToConfigure > 0 && (
+                  <Badge variant="secondary">{summary.readyToConfigure} ready to configure</Badge>
                 )}
                 {summary.done > 0 && (
                   <Badge variant="default" className="bg-green-100 text-green-800">
@@ -366,6 +496,18 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
 
                         {/* Actions */}
                         <div className="flex items-center gap-1">
+                          {file.status === 'ready_to_configure' && file.type === 'csv' && (
+                            <Button
+                              onClick={() => handleConfigureCsv(file.id)}
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-3"
+                              title="Configure column mappings"
+                            >
+                              Configure
+                            </Button>
+                          )}
+                          
                           {(file.status === 'uploading' || file.status === 'processing') && (
                             <Button
                               onClick={() => cancelFile(file.id)}
@@ -390,7 +532,7 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
                             </Button>
                           )}
                           
-                          {(file.status === 'done' || file.status === 'error' || file.status === 'canceled') && (
+                          {(file.status === 'done' || file.status === 'error' || file.status === 'canceled' || file.status === 'ready_to_configure') && (
                             <Button
                               onClick={() => removeFile(file.id)}
                               variant="ghost"
@@ -411,6 +553,69 @@ export function UnifiedUploadComponent({ tenantId }: Props) {
           </div>
         )}
       </CardContent>
+      
+      {/* CSV Configuration Modal */}
+      {configureModal.datasetId && (
+        <CsvConfigurationModalWrapper
+          isOpen={configureModal.open}
+          onClose={() => setConfigureModal({ open: false })}
+          datasetId={configureModal.datasetId}
+          fileName={configureModal.fileName || 'CSV File'}
+          tenantId={tenantId}
+        />
+      )}
     </Card>
+  );
+}
+
+// Wrapper component to handle loading the CSV analysis data
+function CsvConfigurationModalWrapper({
+  isOpen,
+  onClose,
+  datasetId,
+  fileName,
+  tenantId
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  datasetId: string;
+  fileName: string;
+  tenantId: string;
+}) {
+  const { data: analysisResult, isLoading, error } = useQuery({
+    ...createCsvAnalysisQueryOptions(datasetId),
+    enabled: isOpen && !!datasetId
+  });
+
+  if (!isOpen) return null;
+
+  if (isLoading) {
+    return (
+      <CsvConfigurationModal
+        isOpen={isOpen}
+        onClose={onClose}
+        datasetId={datasetId}
+        datasetTitle={`${fileName} (Loading...)`}
+        tenantId={tenantId}
+        initialColumns={[]}
+      />
+    );
+  }
+
+  if (error) {
+    toast.error(`Failed to load CSV analysis: ${error.message}`);
+    onClose();
+    return null;
+  }
+
+  return (
+    <CsvConfigurationModal
+      isOpen={isOpen}
+      onClose={onClose}
+      datasetId={datasetId}
+      datasetTitle={fileName}
+      tenantId={tenantId}
+      initialColumns={analysisResult?.analysis?.columns || []}
+    />
   );
 }

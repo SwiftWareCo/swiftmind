@@ -155,13 +155,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "chat_messages_author_user_id_fkey"
-            columns: ["author_user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "chat_messages_session_fk"
             columns: ["session_id", "tenant_id"]
             isOneToOne: false
@@ -173,7 +166,7 @@ export type Database = {
       chat_sessions: {
         Row: {
           created_at: string
-          created_by: string
+          created_by: string | null
           deleted_at: string | null
           id: string
           last_message_at: string
@@ -183,7 +176,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          created_by: string
+          created_by?: string | null
           deleted_at?: string | null
           id?: string
           last_message_at?: string
@@ -193,7 +186,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           deleted_at?: string | null
           id?: string
           last_message_at?: string
@@ -202,13 +195,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "chat_sessions_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "chat_sessions_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -571,9 +557,11 @@ export type Database = {
       kb_sources: {
         Row: {
           backoffice_only: boolean
+          category: string | null
           config: Json | null
           created_at: string
           created_by: string | null
+          default_allowed_roles: string[]
           id: string
           tenant_id: string
           title: string
@@ -582,9 +570,11 @@ export type Database = {
         }
         Insert: {
           backoffice_only?: boolean
+          category?: string | null
           config?: Json | null
           created_at?: string
           created_by?: string | null
+          default_allowed_roles?: string[]
           id?: string
           tenant_id: string
           title: string
@@ -593,9 +583,11 @@ export type Database = {
         }
         Update: {
           backoffice_only?: boolean
+          category?: string | null
           config?: Json | null
           created_at?: string
           created_by?: string | null
+          default_allowed_roles?: string[]
           id?: string
           tenant_id?: string
           title?: string
@@ -619,7 +611,6 @@ export type Database = {
           },
         ]
       }
-
       memberships: {
         Row: {
           created_at: string
@@ -792,6 +783,168 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "roles_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tabular_columns: {
+        Row: {
+          created_at: string
+          data_type: string
+          dataset_id: string
+          id: string
+          is_indexed: boolean
+          name: string
+          nullable: boolean
+          ordinal: number
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          data_type: string
+          dataset_id: string
+          id?: string
+          is_indexed?: boolean
+          name: string
+          nullable?: boolean
+          ordinal: number
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          data_type?: string
+          dataset_id?: string
+          id?: string
+          is_indexed?: boolean
+          name?: string
+          nullable?: boolean
+          ordinal?: number
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tabular_columns_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "tabular_datasets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tabular_columns_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tabular_datasets: {
+        Row: {
+          allowed_roles: string[]
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          rows_count: number | null
+          settings: Json
+          size_bytes: number | null
+          source_id: string | null
+          status: string
+          tenant_id: string
+          title: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          allowed_roles?: string[]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          rows_count?: number | null
+          settings?: Json
+          size_bytes?: number | null
+          source_id?: string | null
+          status?: string
+          tenant_id: string
+          title: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          allowed_roles?: string[]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          rows_count?: number | null
+          settings?: Json
+          size_bytes?: number | null
+          source_id?: string | null
+          status?: string
+          tenant_id?: string
+          title?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tabular_datasets_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "kb_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tabular_datasets_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tabular_rows: {
+        Row: {
+          allowed_roles: string[] | null
+          created_at: string
+          data: Json
+          dataset_id: string
+          id: number
+          tenant_id: string
+          tsv: unknown | null
+        }
+        Insert: {
+          allowed_roles?: string[] | null
+          created_at?: string
+          data: Json
+          dataset_id: string
+          id?: number
+          tenant_id: string
+          tsv?: unknown | null
+        }
+        Update: {
+          allowed_roles?: string[] | null
+          created_at?: string
+          data?: Json
+          dataset_id?: string
+          id?: number
+          tenant_id?: string
+          tsv?: unknown | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tabular_rows_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "tabular_datasets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tabular_rows_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
